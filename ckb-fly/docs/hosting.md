@@ -132,10 +132,16 @@ Any one of them is enough, and none is a configuration problem:
    a cold start.
 
 The honest serverless path, if you want one: **`flycore` compiles to
-`wasm32-unknown-unknown`.** It is `no_std`, allocation-free, and its only dependency is
-`flycircuit`, which is the same. Because it is *the same Rust*, running it in a Worker does not
-create a second source of truth — that objection does not apply. What remains is the index and
-the SSE fan-out, which still want Durable Objects. That is a project, not a config change.
+`wasm32-unknown-unknown`** — and that is now a measurement, not a hope. `crates/flywasm` is
+the same crate behind a C ABI, and `make test-wasm` loads the module in Node (which is V8,
+so it is the same engine a browser would use) and compares its answer to `flyplan`'s byte for
+byte, on inputs the contract accepts and on inputs it refuses. It is 36 KB, against the 2.9 MB
+`deploy/public/app.js` the page already ships.
+
+Because it is *the same Rust*, running it in a Worker does not create a second source of truth
+— the rule that forbids reimplementing the dynamics does not forbid a second *target*. What
+remains is the index and the SSE fan-out, which still want Durable Objects. That is a project,
+not a config change.
 
 ### Cloudflare Pages for the static half only — **not on its own**
 

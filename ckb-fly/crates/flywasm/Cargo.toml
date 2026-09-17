@@ -1,0 +1,15 @@
+[package]
+name = "flywasm"
+description = "The organism as a wasm module: flycore behind a C ABI, so a browser can compute the successor state a type script will demand"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "flywasm"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+flycircuit = { path = "../flycircuit" }
+flycore = { path = "../flycore" }

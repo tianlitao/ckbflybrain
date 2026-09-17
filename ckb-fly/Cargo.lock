@@ -809,6 +809,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "flywasm"
+version = "0.1.0"
+dependencies = [
+ "flycircuit",
+ "flycore",
+]
+
+[[package]]
 name = "flyworld"
 version = "0.1.0"
 dependencies = [

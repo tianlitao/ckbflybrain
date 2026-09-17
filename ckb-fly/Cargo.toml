@@ -5,6 +5,7 @@ members = [
   "crates/flycore",
   "crates/flycircuit",
   "crates/flyplan",
+  "crates/flywasm",
   "contracts/flybrain",
   "contracts/flylock",
   "contracts/flyworld",
@@ -16,6 +17,15 @@ overflow-checks = true
 strip = false
 codegen-units = 1
 debug = true
+
+# `flywasm` ships to a browser, where the release profile's debug info is dead weight: the
+# `debug = true` / `strip = false` above exist so a failed contract can be inspected, and
+# they cost about 750 KB of wasm. This is the same optimisation level and, crucially, the
+# same `overflow-checks` — only the symbols differ. 36 KB instead of 777 KB.
+[profile.wasm]
+inherits = "release"
+debug = false
+strip = true
 
 # The contract binaries are built for RISC-V; the host-side crates and the
 # integration tests are built for the host. Keeping both in one workspace means

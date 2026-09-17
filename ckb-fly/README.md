@@ -62,6 +62,7 @@ make build            # cross-compile the contracts, strip, copy to build/releas
 make test-all         # the above, plus the CKB-VM integration tests
 make plan             # build `flyplan`, the transaction builder's oracle
 make test-deploy      # pin the JavaScript encoder and decoder against Rust
+make test-wasm        # the same flycore compiled to wasm, checked against flyplan
 make build-front-end  # bundle deploy/public/app.source.js into public/app.js
 ```
 
@@ -83,6 +84,7 @@ the internet.
 crates/flycircuit     decoder for the 15,065-byte connectome table
 crates/flycore        the organism: dynamics, state codec, actions, economics
 crates/flyplan        host-side planner: state + action -> the bytes a transaction needs
+crates/flywasm        the same flycore as a wasm module, for a page with no server behind it
 contracts/flybrain    the type script that guards the state cell
 contracts/flylock     the lock the state cell wears
 contracts/flyworld    the chronicle: a record that has to look at the fly to write it
@@ -410,6 +412,12 @@ Hence the split:
 state, the action witness, the type-script args and the capacity, and spends its own code
 on the chain half — which is where a CKB SDK belongs. A JavaScript reimplementation of the
 dynamics would be a second source of truth for the one thing the port is about.
+
+`crates/flywasm` is the other way out of that constraint, and it is not a reimplementation
+either: it is the same `flycore`, compiled to `wasm32-unknown-unknown`, so that a page with
+no server behind it can compute the successor state itself. The rule above forbids a second
+*implementation*; it does not forbid a second *target*. `make test-wasm` checks the module
+against `flyplan` byte for byte, on inputs the contract accepts and on inputs it refuses.
 
 The exception is `deploy/src/fly.js`, which *is* a JavaScript mirror of the encoders. It
 exists for the half of the project that cannot shell out to Rust — a browser has to encode
@@ -908,6 +916,8 @@ If you just want to play with it:
 
 13. `docs/playing.md` — the five moves, the price of each, and the loop they form
 14. `docs/hosting.md` — what a public deployment needs, and why the server needs no key
+15. `crates/flywasm/src/lib.rs` — the same `flycore` compiled to wasm, and why that is not
+    a second implementation
 
 ## Licence
 

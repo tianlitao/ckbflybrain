@@ -95,6 +95,27 @@ check:
 plan:
 	cargo build -p flyplan
 
+# The same `flycore`, a third target. The page needs the successor state in order to build a
+# transaction at all, and until now the only way to get it was to shell out to `flyplan` —
+# which is why a public deployment needs a machine rather than a bucket. `flycore` is
+# `no_std`, allocation-free and has no `f64`, so it compiles to wasm32 unchanged. Nothing is
+# reimplemented, so this is not a second source of truth; it is the same crate the validator
+# runs, compiled somewhere else. The target is declared in rust-toolchain.toml so a fresh
+# clone can build it without a manual `rustup target add`.
+wasm:
+	@rustc --print target-libdir --target wasm32-unknown-unknown >/dev/null 2>&1 || { \
+	  echo "wasm32-unknown-unknown is not installed for this toolchain."; \
+	  echo "  rustup target add wasm32-unknown-unknown --toolchain 1.98.1"; \
+	  echo "(it is deliberately not in rust-toolchain.toml; see the comment there)"; \
+	  exit 1; \
+	}
+	cargo build -p flywasm --target wasm32-unknown-unknown --profile wasm
+
+# And the check that the claim is true: the module's answer, byte for byte, against the
+# native binary's, on inputs the contract accepts and inputs it refuses.
+test-wasm: wasm plan
+	node crates/flywasm/verify.mjs
+
 # The deployer's golden tests. They pin `deploy/src/fly.js` — the encoder the browser will
 # need, which cannot shell out to Rust — against values produced by `flyplan`. Two
 # implementations of one format is an invitation for them to disagree quietly.

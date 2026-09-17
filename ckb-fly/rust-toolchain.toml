@@ -4,6 +4,13 @@
 # a convenience. `make checksum` records the resulting hashes.
 [toolchain]
 channel = "1.98.1"
+# `wasm32-unknown-unknown`, which `crates/flywasm` needs, is deliberately *not* listed here.
+# Adding it would be harmless — this list only controls which `std` builds rustup keeps
+# installed, and `flywasm` is not a dependency of any contract — but "harmless" is a claim
+# about the one file that pins the contracts' code hashes. This project settles claims like
+# that with a full clean cross-rebuild, not with reasoning, and that rebuild is not worth
+# blocking every `cargo` invocation on a slow download for. `make wasm` names the one command
+# to run instead, and says so when the target is missing.
 targets = ["riscv64imac-unknown-none-elf"]
 components = ["clippy", "rustfmt"]
 profile = "minimal"
