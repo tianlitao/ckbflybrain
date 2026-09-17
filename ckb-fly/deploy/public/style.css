@@ -932,6 +932,23 @@ code {
   border-color: var(--line);
 }
 
+.lang-switch button.lang {
+  color: var(--muted);
+  border-color: transparent;
+  background: transparent;
+}
+
+/* The switch is the one control that sits in the masthead next to the wallet button, and it was
+   still wearing the light theme's pill: `background: #fbfbfa` on a near-black page, which read as
+   a white blob rather than as "EN is the language you are reading". It follows the same
+   accent-tint-plus-glow as the page nav now, so the two controls in that row look like one row. */
+.lang-switch button.lang.active {
+  border-color: var(--line-2);
+  background: var(--accent-dim);
+  color: var(--ink);
+  box-shadow: var(--glow);
+}
+
 .page-nav a[aria-current="page"] {
   color: var(--ink);
   border-color: var(--line-2);

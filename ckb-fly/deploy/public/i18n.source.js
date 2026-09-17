@@ -36,19 +36,19 @@ const EN = {
   // because of it — see the note in `i18n-dom.source.js`. The point is that a reader can find out
   // whether they need to read the paragraph without reading it.
   "app.standfirst":
-    "<strong>A Drosophila head-direction ring attractor — 155 neurons, 6,522 connections — " +
-    "running as an organism on Nervos CKB.</strong> The fly is a cell: every tick consumes it and " +
-    "creates its successor, and the type script refuses anything that is not the exact result of " +
-    "the action the witness declares.",
+    "<strong>A fruit fly's heading circuit, running on Nervos CKB: 155 neurons, 6,522 " +
+    "connections.</strong> The fly is a cell on the chain. Every action spends that cell and " +
+    "creates the next one, and a script on the chain checks that the new cell is exactly what the " +
+    "action computes. If it is not, the whole transaction is rejected.",
 
   "world.heading": "The world",
   "world.countOne": "1 organism on this chain",
   "world.count": "{n} organisms on this chain",
   "world.caption":
-    "<strong>Every organism on this chain, found by asking for cells that wear the flybrain " +
-    "code.</strong> Each fly has a different type script, so there is no single script to look " +
-    "up. The eight-byte instance in the args is what makes two flies with the same genome two " +
-    "organisms — without it this list would have one row. Click a row to watch that one.",
+    "<strong>Every living fly on this chain, found by looking for cells whose type script comes " +
+    "from the flybrain code.</strong> Each fly has its own type script, so one query finds them " +
+    "all. What tells them apart is the eight-byte instance in the args; without it this list " +
+    "would have one row. Click a row to watch that fly.",
 
   "ring.heading": "The ring",
   "ring.headingAtStep": "The ring at step {step}",
@@ -158,9 +158,8 @@ const EN = {
 
   "timeline.heading": "Life so far",
   "timeline.caption":
-    "<strong>CKB has no event log, and this is not one.</strong> It is the fly's chain of state " +
-    "cells, walked backwards from the current one, with each action read out of the witness the " +
-    "type script validated. Nothing here was emitted, and nothing here can be edited.",
+    "<strong>Every step this fly has taken.</strong> Newest first: each row is one state cell, " +
+    "and the action comes out of that transaction's witness. All of it is already on the chain.",
   "timeline.block": "block {n}",
   "timeline.step": "step {n}",
 
@@ -172,15 +171,13 @@ const EN = {
   "wallet.disconnect": "disconnect",
   "wallet.connected": "connected {address}…",
   "wallet.noteConnected":
-    "<strong>Clicks in the Drive panel are signed by this wallet and paid for from its balance.</strong> " +
-    "The transaction is built here, in this tab: the successor state is computed by " +
-    "<code>flywasm</code>, which is the validator's own simulation compiled for the browser. There " +
-    "is no server behind this page, and no key in it but yours.",
+    "<strong>The actions you click in the Drive panel are paid for and signed by this " +
+    "wallet.</strong> The page builds the transaction and works out the next state in your " +
+    "browser with <code>flywasm</code>. There is no key on this page.",
   "wallet.noteOffered":
-    "<strong>Open the wallet list from the button at the top right.</strong> That is CCC's own " +
-    "connector, so it offers every wallet CCC supports — one that is not installed will say so " +
-    "when you pick it. Once connected it pays for and signs a state transition; this page never " +
-    "sees the key.",
+    "<strong>Pick a wallet with the button at the top right.</strong> The list comes from CCC's " +
+    "connector, so it has every wallet CCC supports — one that is not installed says so when you " +
+    "pick it. Once connected, your wallet pays for and signs whatever you click.",
 
   "drive.heading": "Drive",
   "drive.tick": "tick {n}",
@@ -193,9 +190,9 @@ const EN = {
   "drive.subTurn": "spends {n} steps",
   "drive.subResurrect": "buys {n} steps of life",
   "drive.noteDead":
-    "<strong>The fly is dead, and only resurrection is possible.</strong> Its life ran to zero, so " +
-    "every other move here is refused before it is built — the type script will not run a dead " +
-    "organism. Resurrecting starts a new life and increments its generation.",
+    "<strong>The fly is dead, so only resurrection does anything here.</strong> Its life reached " +
+    "zero. Resurrecting starts a new life and adds one to the generation; life left over from " +
+    "the old one does not carry across.",
   // The second line of each card: what the click costs the fly. `tick 64` and `tick 32` are one
   // digit apart and differ by twice the life, and the only place that difference can be said is
   // under the label. `{ckb}` on the feed card is computed from `economics.backingPerStep` rather
@@ -210,13 +207,12 @@ const EN = {
   // reason: it interpolates the refusal the click will be met with, and a computed string goes in
   // as *text*, never as markup.
   "drive.noteWallet":
-    "<strong>Enabled: your wallet signs and pays.</strong> The transaction is built here, in this " +
-    "tab — the successor state is computed by <code>flywasm</code>, the validator's own simulation " +
-    "compiled for the browser — and your wallet only pays the fee and signs.",
+    "<strong>Ready: a transaction costs your wallet a fee and a signature.</strong> The page " +
+    "builds it (the next state is computed in your browser by <code>flywasm</code>), and your " +
+    "key stays in your wallet.",
   "drive.noteConnect":
-    "<strong>Disabled: nothing on this page can sign.</strong> There is no server behind it and no " +
-    "key of its own — connect a wallet (top right) and these buttons light up if it is the right " +
-    "key for this organism.",
+    "<strong>Nothing to click yet: a transaction needs someone to pay for it and sign it.</strong> " +
+    "Connect a wallet in the top right. If it is the right key for this fly, the buttons light up.",
   "drive.disabled": "Disabled: {reason}",
   "drive.asking": "asking your wallet to sign {kind}…",
   "drive.sent":
@@ -242,84 +238,70 @@ const EN = {
 
   "about.title": "What this is",
   "about.lead":
-    "<strong>One fruit fly's head-direction circuit, running as an organism on Nervos CKB — 155 " +
-    "neurons, 6,522 connections and 45,961 synapses, taken from the FlyWire release 783 " +
-    "connectome.</strong> It is not a simulation of a fly wearing a wallet, and it is not a token: " +
-    "the fly is a cell on a chain, and everything it does is recomputed by the chain.",
+    "<strong>One fruit fly's heading circuit, running on Nervos CKB: 155 neurons, 6,522 " +
+    "connections and 45,961 synapses, from the FlyWire release 783 connectome.</strong> It is " +
+    "not a simulation running somewhere else, and it is not a token — the fly is a cell on the " +
+    "chain, and every step it takes is recomputed there.",
 
   "about.why.heading": "Why a ring attractor",
   "about.why.body":
-    "The fly keeps its heading with a ring of neurons in the ellipsoid body. A bump of activity " +
-    "sits somewhere on that ring, and where the bump is *is* which way the fly is facing: a " +
-    "landmark pulls it one way, a turn pushes it the other, and the population vector of the ring " +
-    "— the arrow in the middle of the drawing — is the direction the fly then walks in. It is one " +
-    "of the few circuits in any brain whose output is a single number with a physical meaning, " +
-    "which is why this is the circuit that went on chain.",
+    "The fly keeps its heading with a ring of neurons in the ellipsoid body. A patch of activity " +
+    "— the bump — sits somewhere on that ring, and where it sits is which way the fly is facing: " +
+    "a landmark pulls it to one place, a turn slides it along, and the ring's combined vector is " +
+    "the direction the fly walks in. It is one of the few brain circuits that can be explained " +
+    "with a single picture, which is why it is the one we put on chain.",
 
   "about.exact.heading": "The port is bit-exact, and that is the point",
   "about.exact.body":
-    "This runs the same circuit as <code>MidTermDev/immortal-fruit-fly</code>, which runs it in " +
-    "Solidity on BNB Smart Chain. The port does not approximate it: given the same actions it " +
-    "produces the same 155 membrane potentials, the same engram values, the same pending-input " +
-    "accumulators and the same 16 heading bins. That is checked against a fixture generated by " +
-    "driving the <em>upstream</em> code through the real action sequence the BSC contract executed " +
-    "on mainnet, and then replayed again inside CKB-VM, so the compiled contract the validators " +
-    "run is checked too. A port that merely looked right would be a different animal wearing the " +
-    "same name.",
+    "This is the same circuit as <code>MidTermDev/immortal-fruit-fly</code>, which implements it " +
+    "in Solidity on BNB Smart Chain. The same actions produce the same 155 membrane potentials, " +
+    "the same engram values and the same 16 heading bins, checked against the real action " +
+    "sequence that contract executed on mainnet and replayed inside CKB-VM.",
 
   "about.cell.heading": "Why CKB, and why there is no token",
   "about.cell.body":
     "On the EVM the fly's state lives in storage slots, and every step pays for every slot it " +
-    "rewrites. Here the whole state is one cell of 1,213 bytes: a step consumes it and creates its " +
-    "successor, and the script that guards it writes nothing — it recomputes the successor from " +
-    "the action in the witness and refuses anything that is not byte-for-byte equal to what it " +
-    "computed. Because fees are charged by transaction size rather than by computation, a step " +
-    "costs about 2,385 shannons (measured) where the same step on BSC cost 0.00034 BNB.\n\n" +
-    "There is no token, and that was a decision rather than an omission. A step of life is backed " +
-    "by capacity locked into the organism — 10,000 shannons per step — and the type script forbids " +
-    "destroying the body, so the value cannot be taken out again. Feeding the fly burns CKB in a " +
-    "way anyone can verify, where the upstream project sent its token to a dead address and asked " +
-    "you to believe the balance.",
+    "rewrites. Here the whole state is one cell of 1,213 bytes: a step consumes it and creates " +
+    "the next one, and the script that guards it writes nothing — it recomputes the result from " +
+    "the action in the witness and refuses anything that does not match. Fees are charged by " +
+    "transaction size rather than by computation, so a step here costs about 2,385 shannons " +
+    "(measured) where the same step on BSC cost 0.00034 BNB.\n\n" +
+    "There is no token. A step of life is backed by capacity locked inside the fly — 10,000 " +
+    "shannons per step — and the type script will not let the body be destroyed, so that capacity " +
+    "cannot be taken out again.",
 
   "about.immortal.heading": "What \u201cimmortal\u201d means here, exactly",
   "about.immortal.body":
     "The type script requires that any transaction touching the fly produces exactly one output " +
-    "cell of the same type, with the same lock. Nothing can delete it — not even whoever deployed " +
-    "it — because there is no way to spend the cell that leaves no successor. Dying is not an " +
-    "exception: death is a state (life reaches zero and the fly stops), and <code>resurrect</code> " +
-    "starts a new life and increases the generation. The record beside it is a second type script, " +
-    "<code>flyworld</code>, updated in the same transaction as the transition it describes, and it " +
-    "is deliberately not told what happened: it has to look at the fly and write down what it " +
-    "finds.",
+    "cell of the same type, with the same lock. So nothing can delete the fly — not even whoever " +
+    "deployed it — because there is no way to spend the cell without leaving a successor. Dying " +
+    "is not an exception: death is a state (life reaches zero and the fly stops), and " +
+    "<code>resurrect</code> starts a new life and adds one to the generation. Beside it is a " +
+    "second type script, <code>flyworld</code>, which is updated in the same transaction and is " +
+    "not told what happened: it has to look at the fly itself.",
 
   "about.server.heading": "There is no server",
   "about.server.body":
-    "This is a directory of files. The page reads the chain over JSON-RPC, computes the successor " +
-    "state in your browser with <code>flywasm</code> — the same <code>flycore</code> crate the " +
-    "validator runs, compiled to wasm and checked byte for byte against the native build — and " +
-    "builds the transaction itself. If you connect a wallet, you pay the fee and you sign it, and " +
-    "the page never sees a key, because there is no key on this side to see. That also means there " +
-    "is no operator: no key to drain, no rate limit to hit, and nothing to keep running.",
+    "This is a folder of files. The page reads the chain directly over JSON-RPC, works out the " +
+    "next state in your browser with <code>flywasm</code> — the same code the chain's validator " +
+    "runs, compiled to wasm your browser can execute — and builds the transaction itself. " +
+    "Connect a wallet and you pay and sign. There is no operator, and nothing to keep running.",
 
   "about.not.heading": "What this is not",
   "about.not.body":
-    "The whole brain is not on chain and will not be: 139,248 neurons is about nine million cycles " +
-    "per step, which is a block's entire budget for a millisecond of a fly's life. The ring " +
-    "attractor is the part that fits, and it is the part whose output means something.\n\n" +
-    "The fly's <em>history</em> is only as long as the node remembers. <code>get_transaction</code> " +
-    "is answered from an in-memory index rather than an archive, so a public node can silently " +
-    "truncate an old life and the page will draw what it found without complaining. Run your own " +
-    "node to remove that.\n\n" +
+    "What runs here is the fly's heading circuit, not its whole brain. A whole brain does not " +
+    "fit on a chain.\n\n" +
+    "How far back the page can show depends on how far back the node you are reading remembers; " +
+    "run your own CKB node if you want older history.\n\n" +
     "And a fly whose lock is <code>flylock</code> can be driven by anyone. That is what public " +
-    "means here, and it is why nothing on this page is behind an account: there is no operator " +
-    "whose money a public fly could waste.",
+    "means here.",
 
   "about.more":
-    "<strong>Keep reading.</strong> <a href=\"./guide.html\">How to read the page</a> explains " +
-    "every number, every colour and every button.",
+    "Next: <a href=\"./guide.html\">how to read the page</a> — what every number, colour and " +
+    "button means.",
   "about.repo":
-    "<strong>The code.</strong> " +
-    "<a href=\"https://github.com/tianlitao/ckbflybrain\">github.com/tianlitao/ckbflybrain</a>.",
+    "The code: <a href=\"https://github.com/tianlitao/ckbflybrain\">" +
+    "github.com/tianlitao/ckbflybrain</a>.",
 
   "guide.title": "How to read the page",
   "guide.lead":
@@ -426,13 +408,12 @@ const EN = {
 
   "guide.trust.heading": "Why you do not have to trust the page",
   "guide.trust.body":
-    "Nothing here is a claim about what the page did. The state is read from the chain, and the " +
-    "transaction a click builds is only accepted if the type script recomputes the same successor " +
-    "— the same <code>flycore</code> the page runs, executed again by every validator. A page that " +
-    "lied would produce a transaction the chain refuses; a wallet that signed something else would " +
-    "produce a transaction with nothing to show for it. The one thing worth reading carefully is " +
-    "your wallet's own prompt, and the one thing that is not verifiable from here is where the " +
-    "connectome came from — FlyWire, with the chain pinning only its hash.",
+    "Every number on the page comes from the chain, and every action you click has to be " +
+    "recomputed by a script on the chain before it is accepted. So if the page showed you " +
+    "something wrong, the transaction would not go through; if your wallet signed something " +
+    "else, there would be nothing to show for it. Addresses, transaction hashes and every " +
+    "step's state can all be looked up on the chain. The connectome itself comes from FlyWire, " +
+    "and the chain only pins its hash — that part is not verifiable from here.",
   "guide.back":
     "<strong>Back to the fly.</strong> <a href=\"./index.html\">The organism itself</a> is on the " +
     "front page — this one is only prose.",
@@ -445,17 +426,17 @@ const ZH = {
 
   "app.name": "CKB 果蝇",
   "app.standfirst":
-    "<strong>果蝇头朝向环形吸引子——155 个神经元、6,522 条连接——作为一只生物跑在 Nervos CKB " +
-    "上。</strong>这只果蝇就是一个 cell：每次 tick 花掉它、并造出它的后继，而 type script " +
-    "拒绝任何不是「witness 声明的动作的精确结果」的东西。",
+    "<strong>这是一只果蝇的朝向回路，跑在 Nervos CKB 上：155 个神经元、6,522 条连接。</strong>" +
+    "果蝇就是链上的一个 cell。每做一次动作，旧 cell 被花掉、新 cell 被创建，" +
+    "链上的脚本会核对新 cell 是不是这次动作算出来的结果；对不上，整笔交易就不作数。",
 
   "world.heading": "世界",
   "world.countOne": "这条链上有 1 只生物",
   "world.count": "这条链上有 {n} 只生物",
   "world.caption":
-    "<strong>这条链上的每一只生物，都是靠「找带着 flybrain 这段代码的 cell」找出来的。</strong>" +
-    "每只果蝇的 type script 都不同，所以没有唯一一个脚本可查。args 里那 8 个字节的 instance " +
-    "就是「同一个基因组的两只果蝇算两只生物」的原因——没有它，这张表也就只剩一行。点一行即可观看它。",
+    "<strong>这张表里是链上所有活着的果蝇，它们的 type script 都来自 flybrain 这段代码。</strong>" +
+    "每只果蝇的 type script 都不一样，所以查一次就能把它们全列出来。" +
+    "它们彼此的区别在 args 里那 8 个字节的 instance；没有它，这里就只有一行。点一行看那一只。",
 
   "ring.heading": "环形",
   "ring.headingAtStep": "第 {step} 步时的环",
@@ -559,9 +540,8 @@ const ZH = {
 
   "timeline.heading": "迄今为止",
   "timeline.caption":
-    "<strong>CKB 没有事件日志，这张表也不是。</strong>它是果蝇的状态 cell 链，从当前这只" +
-    "往回走，每一次动作都是从那笔被 type script 验证过的 witness 里读出来的。" +
-    "这里没有任何东西是被「发出」的，也没有任何东西可以被修改。",
+    "<strong>这只果蝇走到今天的每一步。</strong>从上往下是从近到远：每一行都是一个状态 cell，" +
+    "动作从那笔交易的 witness 里读出来，全部是链上原有的数据。",
   "timeline.block": "区块 {n}",
   "timeline.step": "第 {n} 步",
 
@@ -573,13 +553,12 @@ const ZH = {
   "wallet.disconnect": "断开",
   "wallet.connected": "已连接 {address}…",
   "wallet.noteConnected":
-    "<strong>在「驱动」面板里点击，由这个钱包签名、并从它的余额付费。</strong>交易就在这个标签页" +
-    "里组装：后继状态由 <code>flywasm</code> 算出，那是验证器自己的模拟编译到浏览器的版本。" +
-    "这个页面背后没有服务器，里面也没有除你之外的钥匙。",
+    "<strong>你在驱动面板里点的动作，由这个钱包付费并签名。</strong>" +
+    "页面负责拼交易，下一步的状态用 <code>flywasm</code> 在浏览器里算出来。页面上没有任何私钥。",
   "wallet.noteOffered":
-    "<strong>用右上角的按钮打开钱包列表。</strong>那是 CCC 自己的连接器，所以列出 CCC 支持的全部" +
-    "钱包——还没装的那个，选中时会告诉你。连上之后它就能为一次状态转换付费并签名；" +
-    "这个页面永远看不到私钥。",
+    "<strong>点右上角的按钮选择钱包。</strong>" +
+    "列表由 CCC 的连接器提供，CCC 支持的钱包都在里面；没装的那个在选中时会告诉你。" +
+    "连上之后，你点这里的动作就由它付费、由它签名。",
 
   "drive.heading": "驱动",
   "drive.tick": "推进 {n} 步",
@@ -592,21 +571,19 @@ const ZH = {
   "drive.subTurn": "消耗 {n} 步",
   "drive.subResurrect": "买到 {n} 步寿命",
   "drive.noteDead":
-    "<strong>果蝇已经死了，这时只有复活能做。</strong>它的寿命走到了零，所以这里的其他动作" +
-    "在组装之前就会被拒——type script 不会去跑一只已死的生物。复活会开始新的一生，" +
-    "并把代数加一。",
+    "<strong>果蝇已经死了，这里只有复活有效。</strong>它的寿命走到了零。" +
+    "复活会开始新的一生、代数加一；上一生没花完的寿命不会留下。",
   "drive.lifeLeft": "还剩 {n} 步寿命",
   "drive.subTick": "消耗 {n} 步寿命",
   "drive.subFeed": "补充 {n} 步寿命 · +{ckb} CKB",
   "drive.subCue": "保持一个路标 · 消耗 {n} 步",
   "drive.subShock": "厌恶刺激 · 消耗 {n} 步",
   "drive.noteWallet":
-    "<strong>可用：由你的钱包签名并付费。</strong>交易就在这个标签页里组装——后继状态由 " +
-    "<code>flywasm</code> 算出，那是验证器自己的模拟编译到浏览器的版本——" +
-    "你的钱包只负责付手续费并签名。",
+    "<strong>可以点击：每笔交易由你的钱包付手续费并签名。</strong>" +
+    "页面负责把交易拼好（下一步的状态由 <code>flywasm</code> 在浏览器里算出来），私钥始终留在钱包里。",
   "drive.noteConnect":
-    "<strong>已禁用：这个页面上没有任何东西能签名。</strong>它背后没有服务器，也没有自己的" +
-    "钥匙——连接一个钱包（右上角），如果它是这只生物的正确钥匙，这些按钮就会亮起来。",
+    "<strong>现在点不了：需要有人为交易付手续费并签名。</strong>" +
+    "在右上角连接一个钱包；如果它正好是这只果蝇的钥匙，按钮就会亮起来。",
   "drive.disabled": "已禁用：{reason}",
   "drive.asking": "正在请你的钱包为 {kind} 签名…",
   "drive.sent": "已发送 {tx} —— 由你的钱包签名并付费；下一次轮询会显示链上确认后的结果",
@@ -625,72 +602,58 @@ const ZH = {
 
   "about.title": "这是什么",
   "about.lead":
-    "<strong>一只果蝇的朝向回路，作为一只生物跑在 Nervos CKB 上——155 个神经元、6,522 条连接、" +
-    "45,961 个突触，取自 FlyWire release 783 的连接组。</strong>它不是戴了个钱包的果蝇模拟，" +
-    "也不是代币：这只果蝇就是链上的一个 cell，它做的每一件事都由链重新算一遍。",
+    "<strong>这是一只果蝇的朝向回路，跑在 Nervos CKB 上：155 个神经元、6,522 条连接、" +
+    "45,961 个突触，连接组来自 FlyWire release 783。</strong>" +
+    "它不是链下的模拟，也不是代币——这只果蝇就是链上的一个 cell，它的每一步都由链重新算一遍。",
 
   "about.why.heading": "为什么是环形吸引子",
   "about.why.body":
-    "果蝇用椭球体里的一圈神经元记住自己的朝向。一圈活动里有一个「包」（bump）停在某个位置，" +
-    "包在哪里，就是它面朝哪里：地标把包往一边拉，转向把包往另一边推，" +
-    "而这一圈的群体向量——图中间那支箭头——就是它随后走的方向。" +
-    "大脑里能给出「一个带物理含义的数」的回路并不多，这是其中之一，" +
-    "也是它被放上链的原因。",
+    "果蝇靠椭球体里的一圈神经元记住朝向。环上有一片活动最强的区域（bump），它在环上的位置就是" +
+    "果蝇面朝的方向：地标把它拉到某个位置，转向让它沿着环滑动，整圈的合成向量就是它走路的方向。" +
+    "这是少数几个用一张图就能讲清楚的脑回路，所以我们把它放上了链。",
 
   "about.exact.heading": "移植是逐位精确的，这正是重点",
   "about.exact.body":
-    "它和 <code>MidTermDev/immortal-fruit-fly</code> 跑的是同一套回路——那个版本用 Solidity " +
-    "跑在 BNB Smart Chain 上。这次移植没有做近似：同样的动作序列给出同样的 155 个膜电位、" +
-    "同样的 engram 值、同样的待处理输入累加器、同样的 16 个朝向直方图格。" +
-    "这一切是对着「用上游代码跑 BSC 主网上真实执行过的动作序列」生成的基准值校对的，" +
-    "并且再在 CKB-VM 里重放一遍，所以验证者执行的编译产物也被测到了。" +
-    "一个只是「看起来像」的移植，就是另一只顶着同样名字的动物。",
+    "它和 <code>MidTermDev/immortal-fruit-fly</code> 跑的是同一套回路，" +
+    "那个版本用 Solidity 实现在 BNB Smart Chain 上。同样的动作序列会得到同样的 155 个膜电位、" +
+    "同样的 engram、同样的 16 个朝向直方图格——这是对着主网上真实执行过的动作序列核对过的，" +
+    "也在 CKB-VM 里重放过。",
 
   "about.cell.heading": "为什么放 CKB 上，以及为什么没有代币",
   "about.cell.body":
-    "在 EVM 上，果蝇的状态住在 storage 槽里，每一步都要为它改写的每个槽付费。" +
-    "在这里，整个状态就是 1,213 字节的一个 cell：一步消费它并创建它的后继，" +
-    "而守着它的脚本什么都不写——它从 witness 里取出动作、把后继重算一遍，" +
-    "只要有一个字节对不上就拒绝。由于手续费按交易大小而不是按计算量收，" +
-    "这里一步约 2,385 shannons（实测），而同样的那一步在 BSC 上是 0.00034 BNB。\n\n" +
-    "没有代币，这是决定而不是遗漏。一步寿命由锁在生物体内的容量背书——每步 10,000 " +
-    "shannons——而 type script 禁止销毁这具身体，所以这份价值拿不回去。" +
-    "投喂是在用任何人都能验证的方式烧掉 CKB；上游项目把代币打到一个死地址，" +
-    "然后请你相信那个余额。",
+    "在 EVM 上，果蝇的状态存在 storage 槽里，每一步都要为改写的每个槽付费。" +
+    "在这里，整个状态就是 1,213 字节的一个 cell：一步消费它、创建下一个，" +
+    "守着它的脚本什么都不写——它按 witness 里的动作把结果重算一遍，对不上就拒绝。" +
+    "手续费按交易大小收，不按计算量收，所以这里一步约 2,385 shannons（实测），" +
+    "而同样的那一步在 BSC 上是 0.00034 BNB。\n\n" +
+    "没有代币。一步寿命由锁在果蝇身体里的容量背书——每步 10,000 shannons——" +
+    "而 type script 不允许销毁这具身体，所以这部分容量取不出来。",
 
   "about.immortal.heading": "「永生」在这里的准确含义",
   "about.immortal.body":
-    "type script 要求：任何碰到这只果蝇的交易，都必须产出恰好一个同类型、同 lock 的输出 " +
-    "cell。所以没有谁能删掉它——连部署者也不行——因为不存在一种「花掉它却不留下后继」的花法。" +
-    "死亡不是例外：死是一种状态（寿命归零、停止活动），而 <code>resurrect</code> 会开始新的一生、" +
-    "把代数加一。旁边那份记录是第二个 type script，<code>flyworld</code>，" +
-    "它和它所描述的那次状态转换在同一笔交易里更新，而且故意不被告知发生了什么：" +
-    "它必须自己去看这只果蝇，并把它看到的东西写下来。",
+    "type script 要求：任何碰到这只果蝇的交易，都必须产出恰好一个同类型、同 lock 的输出 cell。" +
+    "所以没有谁能删掉它——连部署者也不行——因为不存在一种「花掉它却不留下后继」的花法。" +
+    "死亡不是例外：死是一种状态（寿命归零、停止活动），<code>resurrect</code> 会开始新的一生、把代数加一。" +
+    "旁边那份记录是第二个 type script，<code>flyworld</code>，" +
+    "它和它所描述的那次转换在同一笔交易里更新，而且不被告知发生了什么：它必须自己去看这只果蝇。",
 
   "about.server.heading": "这里没有服务器",
   "about.server.body":
-    "这就是一个目录里的若干文件。页面用 JSON-RPC 读链，在你的浏览器里用 <code>flywasm</code> " +
-    "算出后继状态——那正是验证器用的同一个 <code>flycore</code> crate，编译成 wasm，" +
-    "并与本机构建逐字节校对过——交易也由页面自己组装。连上钱包之后，你付费、你签名，" +
-    "页面看不到任何私钥，因为这一侧根本没有私钥可看。这也意味着没有运营方：" +
-    "没有可以被掏空的钥匙，没有会被打满的限流，也没有需要一直跑着的东西。",
+    "这就是一个目录里的若干文件。页面用 JSON-RPC 直接读链，在你的浏览器里用 <code>flywasm</code> " +
+    "算出下一步的状态（它就是链上验证器用的那段代码，编译成浏览器能跑的 wasm），交易也由页面自己拼。" +
+    "连上钱包之后，你付费、你签名。没有运营方，也没有需要一直跑着的服务。",
 
   "about.not.heading": "它不是什么",
   "about.not.body":
-    "全脑不在链上，也不会在：139,248 个神经元每一步约九百万 cycles，" +
-    "那是整整一个区块的预算，只换到果蝇一毫秒的生命。环形吸引子是塞得下的那一部分，" +
-    "也是输出有含义的那一部分。\n\n" +
-    "果蝇的<em>历史</em>只和节点记得的一样长。<code>get_transaction</code> 由内存索引回答，" +
-    "它不是归档，所以公共节点可能悄悄截断一段久远的生命，而页面会把它读到的画出来、不吭声。" +
-    "自己跑一个节点就没有这个问题。\n\n" +
-    "另外，lock 是 <code>flylock</code> 的果蝇谁都能驱动。这就是这里「公开」的意思，" +
-    "也是这个页面背后没有账号的原因：不存在一个能被公共果蝇浪费掉钱的运营方。",
+    "这里跑的是果蝇的朝向回路，不是整只大脑。整只大脑目前放不到链上。\n\n" +
+    "页面能显示多久的历史，取决于你连的节点还记得多久；想看得更早，自己跑一个 CKB 节点就行。\n\n" +
+    "另外，lock 是 <code>flylock</code> 的果蝇谁都能驱动——这就是这里「公开」的意思。",
 
   "about.more":
-    "<strong>接着看。</strong><a href=\"./guide.html\">页面怎么看</a>解释了每个数字、每种颜色和每个按钮。",
+    "接着看：<a href=\"./guide.html\">页面怎么看</a>——每个数字、每种颜色、每个按钮是什么意思。",
   "about.repo":
-    "<strong>代码。</strong>" +
-    "<a href=\"https://github.com/tianlitao/ckbflybrain\">github.com/tianlitao/ckbflybrain</a>。",
+    "代码：<a href=\"https://github.com/tianlitao/ckbflybrain\">" +
+    "github.com/tianlitao/ckbflybrain</a>。",
 
   "guide.title": "页面怎么看",
   "guide.lead":
@@ -779,12 +742,10 @@ const ZH = {
 
   "guide.trust.heading": "为什么你不必相信这个页面",
   "guide.trust.body":
-    "这里没有任何一句话是在声称「页面做了什么」。状态是从链上读的，" +
-    "而点击组装的交易只有在 type script 重算出同样的后继时才会被接受——" +
-    "那正是页面跑的同一个 <code>flycore</code>，由每个验证者再执行一遍。" +
-    "页面撒谎，交易就会被链拒绝；钱包签了别的东西，交易就没有结果。" +
-    "唯一值得你认真读的是钱包自己弹出来的提示；唯一无法从这里验证的是连接组的来源——" +
-    "它来自 FlyWire，链只钉住了它的哈希。",
+    "页面上的每个数字都来自链上，你点的每个动作也要由链上的脚本重新算一遍才会被接受。" +
+    "也就是说：页面显示错了，交易就不会成功；钱包签了别的东西，链上也不会有结果。" +
+    "想核对的话，地址、交易哈希、每一步的状态都可以在链上查。" +
+    "连接组本身来自 FlyWire，链上只钉住了它的哈希，这一点没法从这个页面验证。",
   "guide.back":
     "<strong>回到果蝇。</strong><a href=\"./index.html\">它本身</a>在首页——这一页只是说明。",
 };
