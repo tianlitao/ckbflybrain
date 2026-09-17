@@ -1,0 +1,44 @@
+# Cloudflare Tunnel for the fly's indexer.
+#
+# `serve.js` binds 127.0.0.1, and that is what a tunnel wants rather than something to work
+# around: cloudflared connects *out* to Cloudflare, so the host needs no inbound port, no
+# public IP and no certificate. It also keeps the page and the API on one origin, so no CORS
+# is involved — the server sends no CORS headers and the page only ever fetches relative paths.
+#
+# Set up:
+#
+#     cloudflared tunnel login
+#     cloudflared tunnel create ckbfly          # prints the UUID, writes the credentials JSON
+#     cloudflared tunnel route dns ckbfly fly.example.com
+#     cloudflared tunnel --config cloudflared.yml run
+#
+# `cloudflared tunnel create` prints both values you have to paste below.
+
+tunnel: REPLACE-WITH-THE-TUNNEL-UUID
+credentials-file: /REPLACE/WITH/YOUR/HOME/.cloudflared/REPLACE-WITH-THE-TUNNEL-UUID.json
+
+ingress:
+  - hostname: fly.example.com
+    service: http://127.0.0.1:8899
+    originRequest:
+      # The page holds an SSE connection open for as long as it is on screen, and Cloudflare
+      # will not wait forever for a response to look alive. `serve.js` writes a comment frame
+      # every 15 seconds precisely so that an idle stream is not mistaken for a dead one —
+      # that keep-alive is load-bearing, not decoration, and this timeout has to be longer
+      # than it.
+      connectTimeout: 30s
+  # Everything else, including a request for a hostname you did not configure. Named
+  # explicitly because cloudflared requires a catch-all and will not start without one.
+  - service: http_status:404
+
+# ---------------------------------------------------------------------------------------
+# Two things worth knowing before this is public.
+#
+# **Put Cloudflare Access in front of it if it is not meant to be public yet.** One policy in
+# the dashboard, and the server needs to know nothing about it.
+#
+# **Do not turn on INDEXER_ALLOW_DRIVE.** It is absent above on purpose. `serve-public.sh`
+# refuses it for the same reason, and it is worth repeating: nothing in this server
+# rate-limits anything, and a single `feed` click moves the operator's CKB into a body the
+# type script forbids ever emptying. Visitors can still drive the organism with their own
+# wallets — that path goes through `POST /api/prepare`, which signs nothing.

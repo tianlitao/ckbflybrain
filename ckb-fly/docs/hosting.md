@@ -75,6 +75,33 @@ one you meant.
 keyless server logs that it is indexing and preparing only, reports `drive: false`, keeps
 `/api/prepare` open, and refuses `POST /api/act` with a message naming `/api/prepare`.
 
+### Or let the script check it for you
+
+`deploy/serve-public.sh` is the configuration above with the two expensive mistakes made
+impossible, because both are invisible until they have already cost something:
+
+- **A missing or loopback `CKB_RPC_URL`** is read as "a dev chain", which selects
+  `deployment.json` and `.key` — the wrong record and the wrong key on a public host.
+- **`INDEXER_ALLOW_DRIVE=1`** exposes `POST /api/act`, which signs with a key. It is refused
+  unless `FLY_ALLOW_PUBLIC_DRIVE=yes` says so in the environment.
+
+It also checks the two build products that are not in git and names the command for each:
+
+```sh
+CKB_RPC_URL=https://testnet.ckb.dev/ ./serve-public.sh
+```
+
+`test/serve-public.test.js` pins both refusals, and needs no chain — every one of them
+happens before the script does anything.
+
+Ready-made service definitions are in `deploy/hosting/`:
+
+| file | for |
+|---|---|
+| `ckbfly-serve.service` | a Linux host, with the read-only hardening the keyless configuration allows |
+| `com.ckbfly.serve.plist` | macOS, for the self-hosting case |
+| `cloudflared.yml` | a Cloudflare Tunnel in front of either |
+
 ---
 
 ## The three shapes, and which one works
