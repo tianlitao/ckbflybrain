@@ -46,8 +46,9 @@ import { extname, join, normalize, resolve } from "node:path";
 
 import * as ccc from "@ckb-ccc/core";
 
-import { PROJECT_ROOT } from "./fly.js";
+import { PROJECT_ROOT } from "./artifacts.js";
 import * as plan from "./plan.js";
+import { decodeState, paramsNamed, worldDecode } from "./fly.js";
 import { CONFIG, FEE_RATE, applyAction, buildAction, makeClient, makeSigner, readDeployment, tryResolvePrivateKey } from "./cli.js";
 import { findHead, identity, readChain } from "./history.js";
 import { ambiguity, createGate, describeAmbiguity, driveAuthorization, rosterDue } from "./watch.js";
@@ -192,10 +193,7 @@ async function refreshFlies(client) {
     200,
   )) {
     const script = ccc.Script.from(cell.cellOutput.type);
-    const state = plan.decode({
-      params: index.deployment.params,
-      state: ccc.hexFrom(cell.outputData),
-    });
+    const state = decodeState(ccc.bytesFrom(cell.outputData));
     const { v, bias, inp, ...summary } = state;
     rows.push({
       typeHash: script.hash(),
@@ -263,7 +261,7 @@ async function findChronicle(client, flyworld, flyTypeHash) {
     return {
       outPoint: { txHash: cell.outPoint.txHash, index: Number(cell.outPoint.index) },
       capacity: String(cell.cellOutput.capacity),
-      ...plan.worldDecode({ world: ccc.hexFrom(cell.outputData) }),
+      ...worldDecode(ccc.bytesFrom(cell.outputData)),
     };
   }
   return null;
@@ -289,6 +287,7 @@ async function selectFly(client, typeHash) {
     typeHash: fly.typeHash,
     lockScript: fly.lock,
     params: index.deployment.params,
+    paramsStruct: paramsNamed(index.deployment.params),
     economics: index.deployment.economics,
     codeCells: index.deployment.codeCells,
   };
@@ -325,7 +324,7 @@ async function refreshChronicle(client) {
     // it becomes a number here rather than blowing up at the edge.
     outPoint: { txHash: cell.outPoint.txHash, index: Number(cell.outPoint.index) },
     capacity: String(cell.cellOutput.capacity),
-    ...plan.worldDecode({ world: ccc.hexFrom(cell.outputData) }),
+    ...worldDecode(ccc.bytesFrom(cell.outputData)),
   };
 }
 
@@ -969,7 +968,7 @@ const server = createServer(async (req, res) => {
         action: entry.action,
         blockNumber: entry.blockNumber,
         capacity: entry.capacity,
-        state: plan.decode({ params: index.id.params, state: entry.state.state, full: true }),
+        state: decodeState(ccc.bytesFrom(entry.state.state), { full: true }),
       });
     }
 

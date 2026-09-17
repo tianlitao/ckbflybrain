@@ -20,6 +20,7 @@ import { describe, it } from "node:test";
 
 import {
   ARGS_LEN,
+  CH,
   ECON_FREE,
   ECON_TESTNET,
   N,
@@ -27,17 +28,22 @@ import {
   PARAMS_V2,
   STATE_LEN,
   SHANNONS_PER_CKB,
+  WEDGES,
+  WORLD_LEN,
   action,
-  circuitHash,
-  circuitTable,
+  circuitLayout,
   decodeState,
   encodeArgs,
   encodeEconomics,
   encodeParams,
   genesisState,
+  keccak256,
   occupiedCapacity,
+  paramsNamed,
+  worldDecode,
 } from "../src/fly.js";
-import { circuit, decode, decodeAction, economics, golden } from "../src/plan.js";
+import { circuitHash, circuitTable } from "../src/artifacts.js";
+import { circuit, decode, decodeAction, economics, golden, worldOpen } from "../src/plan.js";
 
 const g = golden();
 
@@ -84,6 +90,67 @@ describe("economics", () => {
   });
 });
 
+describe("action decoding agrees with Rust", () => {
+  // `flyplan golden` encodes these four with Rust's `Action::encode`. Decoding them here and
+  // re-encoding has to land on the same bytes. The browser reads actions out of witnesses —
+  // that is how it knows what a history entry was — and it has no `flyplan` to ask, so this
+  // decoder is the only thing standing between a page and a history it made up.
+  const expected = {
+    tick64: { kind: "tick", steps: 64 },
+    stimulateCue4: { kind: "stimulate", channel: 1, param: 4, strength: 4, steps: 32 },
+    feed10000: { kind: "feed", steps: 10000 },
+    resurrect1000: { kind: "resurrect", steps: 1000, bornBlock: 42 },
+  };
+
+  const reencode = (d) =>
+    d.kind === "tick"
+      ? action.tick(d.steps)
+      : d.kind === "stimulate"
+        ? action.stimulate(d.channel, d.param, d.strength, d.steps)
+        : d.kind === "feed"
+          ? action.feed(d.steps)
+          : action.resurrect(d.steps, d.bornBlock);
+
+  for (const [name, want] of Object.entries(expected)) {
+    it(`${name} decodes to exactly what Rust decodes it to`, () => {
+      const raw = bytes(g.actions[name]);
+      const got = action.decode(raw, PARAMS_V1);
+      // The whole object, not field by field: an extra key would be as much of a divergence
+      // as a wrong value, and this is the decoder a page has to be able to trust.
+      assert.deepEqual(got, want);
+      // And the same object `flyplan decode-action` prints, so the indexer can swap one for
+      // the other without changing the JSON it serves.
+      assert.deepEqual(got, decodeAction({ action: g.actions[name] }));
+      assert.equal(hex(reencode(got)), g.actions[name], "round-trips to the same bytes");
+    });
+  }
+
+  it("refuses exactly what the contract refuses", () => {
+    const refused = [
+      ["empty", "0x", /Truncated/],
+      ["an unknown tag", "0x05", /UnknownTag/],
+      ["trailing bytes", g.actions.tick64 + "ff", /TrailingBytes/],
+      ["zero steps", "0x010000", /BadSteps/],
+      ["more steps than maxSteps", "0x014100", /BadSteps/],
+      ["channel 0", "0x020000010100", /BadStimulus/],
+      ["channel 5", "0x020500010100", /BadStimulus/],
+      ["strength 0", "0x020100000100", /BadStimulus/],
+      ["a cue past the last wedge", "0x020110010100", /BadStimulus/],
+      ["a truncated feed", "0x0301", /Truncated/],
+      ["feeding zero", "0x030000000000000000", /ZeroAmount/],
+      ["resurrecting zero", "0x040000000000000000" + "0000000000000000", /ZeroAmount/],
+    ];
+    for (const [label, h, pattern] of refused) {
+      assert.throws(() => action.decode(bytes(h), PARAMS_V1), pattern, label);
+    }
+  });
+
+  it("accepts a cue at the last wedge, which is the boundary the check is about", () => {
+    const last = action.stimulate(CH.CUE, WEDGES - 1, 1, 1);
+    assert.equal(action.decode(last, PARAMS_V1).param, WEDGES - 1);
+  });
+});
+
 describe("type script args", () => {
   it("the full 89 bytes match", () => {
     const args = encodeArgs({
@@ -120,9 +187,12 @@ describe("genesis", () => {
     assert.equal(s.version, 1);
     assert.equal(s.n, N);
     assert.equal(s.alive, true);
-    assert.equal(s.step, 0n);
-    assert.equal(s.energy, 1_000_000n);
-    assert.equal(s.bornBlock, 0n);
+    // Strings, because `flyplan decode` prints a u64 as a decimal string and this is its
+    // mirror. The distinction is the point: `Number("1000000")` is exact, and `Number` of a
+    // step counter that has passed 2^53 would not be.
+    assert.equal(s.step, "0");
+    assert.equal(s.energy, "1000000");
+    assert.equal(s.bornBlock, "0");
     assert.equal(s.generation, 0);
     // A newborn has no membrane potential, no engram and no history. The contract
     // refuses any genesis that is not exactly this, so the decoder agreeing is the
@@ -146,13 +216,13 @@ describe("a worked transition", () => {
 
   it("the successor decodes to the expected step and energy", () => {
     const s = decodeState(bytes(after));
-    assert.equal(s.step, BigInt(g.transition.step));
-    assert.equal(s.energy, BigInt(g.transition.outEnergy));
+    assert.equal(s.step, String(g.transition.step));
+    assert.equal(s.energy, String(g.transition.outEnergy));
     assert.equal(s.alive, true);
     // The mainnet trajectory's first `tick(64)` fires nothing. That is a real fact about
     // the circuit, and it is also why the noise byte-order bug survived a first glance.
-    assert.equal(s.totalSpikes, BigInt(g.transition.totalSpikes));
-    assert.equal(s.totalSpikes, 0n);
+    assert.equal(s.totalSpikes, String(g.transition.totalSpikes));
+    assert.equal(s.totalSpikes, "0");
   });
 
   it("the capacity delta is exactly the value of the life spent", () => {
@@ -195,39 +265,71 @@ describe("the two decoders agree", () => {
   // half a front-end actually trusts: it reads states off the chain and has to arrive at
   // the same numbers Rust does. A decoder that is subtly wrong is worse than a missing
   // one, because it produces a plausible fly.
+  //
+  // `plan.decode` shells out to `flyplan`; `decodeState` is the JavaScript mirror the
+  // browser uses instead. The two are deliberately not the same object — `flyplan` reports
+  // the encoding of the state it was handed, and this one reports what the state contains —
+  // so the difference is pinned as well as the agreement. A field that appears on one side
+  // and not the other is drift, and drift here is what the whole file exists to catch.
   const state = bytes(g.transition.to);
   const rust = decode({ state: g.transition.to });
   const js = decodeState(state);
 
-  it("agree on the header", () => {
+  it("agree on every field they both carry", () => {
+    const shared = Object.keys(js).filter((key) => key in rust);
+    assert.deepEqual(
+      shared.sort(),
+      [
+        "alive",
+        "bornBlock",
+        "energy",
+        "generation",
+        "headX",
+        "headY",
+        "headingHist",
+        "lifeSpikes",
+        "lifeSteps",
+        "n",
+        "posX",
+        "posY",
+        "step",
+        "stimChannel",
+        "stimParam",
+        "stimStrength",
+        "stimUntil",
+        "totalSpikes",
+      ],
+      "the shared field list changed",
+    );
+    for (const key of shared) {
+      // Value *and* type. A u64 that arrives as a number on one side and a string on the
+      // other is exactly the kind of difference that never fails anything downstream.
+      assert.deepEqual(js[key], rust[key], key);
+    }
+  });
+
+  it("differ only in what each one is for", () => {
+    // `flyplan` describes the bytes: the hex it read, its length, its keccak256. This one
+    // describes the fly: which format version the header is, and how many of the 155
+    // neurons carry a non-zero value — counts rather than the arrays, because a summary
+    // that carried 465 numbers would not be a summary.
+    assert.deepEqual(Object.keys(js).filter((key) => !(key in rust)).sort(), [
+      "nonZeroBias",
+      "nonZeroInp",
+      "nonZeroV",
+      "version",
+    ]);
+    assert.deepEqual(Object.keys(rust).filter((key) => !(key in js)).sort(), [
+      "len",
+      "state",
+      "stateHash",
+    ]);
+  });
+
+  it("agree on the parts a test failure is easiest to read", () => {
     assert.equal(js.version, 1);
-    assert.equal(js.n, rust.n);
     assert.equal(js.n, N);
-    assert.equal(js.alive, rust.alive);
-    assert.equal(js.generation, Number(rust.generation));
-  });
-
-  it("agree on the counters", () => {
-    assert.equal(BigInt(js.step), BigInt(rust.step));
-    assert.equal(BigInt(js.energy), BigInt(rust.energy));
-    assert.equal(BigInt(js.totalSpikes), BigInt(rust.totalSpikes));
-    assert.equal(BigInt(js.lifeSteps), BigInt(rust.lifeSteps));
-    assert.equal(BigInt(js.lifeSpikes), BigInt(rust.lifeSpikes));
-    assert.equal(BigInt(js.bornBlock), BigInt(rust.bornBlock));
-    assert.equal(BigInt(js.stimUntil), BigInt(rust.stimUntil));
-  });
-
-  it("agree on the stimulus", () => {
-    assert.equal(js.stimChannel, rust.stimChannel);
-    assert.equal(js.stimParam, rust.stimParam);
-    assert.equal(js.stimStrength, rust.stimStrength);
-  });
-
-  it("agree on the heading and the walk", () => {
-    assert.equal(js.headX, rust.headX);
-    assert.equal(js.headY, rust.headY);
-    assert.equal(BigInt(js.posX), BigInt(rust.posX));
-    assert.equal(BigInt(js.posY), BigInt(rust.posY));
+    assert.equal(js.alive, true);
     assert.deepEqual(js.headingHist, rust.headingHist);
   });
 });
@@ -292,5 +394,97 @@ describe("the circuit and the prices", () => {
     assert.equal(e.stimCostSteps, String(ECON_TESTNET.stimCostSteps));
     assert.equal(e.bodyCapacity, String(ECON_TESTNET.bodyCapacity));
     assert.equal(e.bytes, g.economicsTestnet);
+  });
+});
+
+describe("the connectome layout agrees with Rust", () => {
+  // The page draws the ring from this, and it has no `flyplan` to ask. A layout that is
+  // subtly wrong does not fail — it draws a fly whose neurons are in the wrong wedges,
+  // which looks entirely plausible. So every neuron is compared, not a sample.
+  const rust = circuit({ layout: true });
+  const js = circuitLayout(circuitTable());
+
+  it("agrees on the header", () => {
+    assert.equal(js.hash, rust.hash);
+    assert.equal(js.hash, circuitHash());
+    assert.equal(js.bytes, rust.bytes);
+    assert.equal(js.n, rust.n);
+    assert.equal(js.n, N);
+    assert.equal(js.wedges, rust.wedges);
+    assert.equal(js.wedges, WEDGES);
+  });
+
+  it("places every neuron exactly where Rust places it", () => {
+    assert.equal(js.layout.length, rust.layout.length);
+    for (let i = 0; i < rust.layout.length; i++) {
+      assert.deepEqual(js.layout[i], rust.layout[i], `neuron ${i}`);
+    }
+  });
+
+  it("refuses a table whose header lies about its own length", () => {
+    const truncated = circuitTable().slice(0, 100);
+    assert.throws(() => circuitLayout(truncated), /its header implies/);
+  });
+});
+
+describe("the chronicle decodes as Rust decodes it", () => {
+  // A chronicle is the fly's biography written by the contract in the same transaction that
+  // moved it, so a page showing "sightings: 3" is showing a number the chain produced. It
+  // has to read the bytes the same way `flyworld` wrote them.
+  const newborn = genesisState({ energy: 1_000_000n, bornBlock: 0n });
+  const opened = worldOpen({ flyState: hex(newborn), capacity: "150000000000" });
+  const js = worldDecode(bytes(opened.data));
+  const rust = opened;
+
+  it("agrees on every field", () => {
+    assert.equal(WORLD_LEN, rust.len);
+    // Whole objects: the chronicle JSON minus the two fields that describe the encoding
+    // rather than the fly. A missing field and a mis-typed one both fail here.
+    const { data, len, ...fields } = rust;
+    assert.deepEqual(js, fields);
+  });
+
+  it("derives net capacity the way Rust does", () => {
+    assert.equal(js.netCapacity, rust.netCapacity);
+    assert.equal(js.netCapacity, "0", "a chronicle that has seen nothing has gained nothing");
+  });
+
+  it("opens with one sighting and the fly's own state hash", () => {
+    // Not an arbitrary number: `World::open` records the fly it was opened for, and a
+    // chronicle whose first entry is not the newborn is one the contract would refuse. The
+    // hash is keccak256 of the state bytes — not CKB's own blake2b, which is what names a
+    // cell on chain; this one names the fly *inside* the record, and the two are different
+    // questions.
+    assert.equal(js.sightings, "1");
+    assert.equal(js.stateHash, keccak256(newborn));
+    assert.equal(js.stateHash, rust.stateHash);
+    assert.equal(js.generation, 0);
+    assert.equal(js.alive, true);
+  });
+
+  it("refuses bytes that are not a chronicle", () => {
+    assert.throws(() => worldDecode(bytes(opened.data).slice(0, 127)), /not decodable/);
+    // Byte 1 is `alive`, and it is an option, not a flag: `World::decode` refuses anything
+    // but 0 and 1, so a 2 here is a cell the contract would have refused to create.
+    const bad = bytes(opened.data);
+    bad[1] = 2;
+    assert.throws(() => worldDecode(bad), /not decodable/);
+    // Byte 2 is padding, and a non-zero pad means the bytes are not what they claim.
+    const padded = bytes(opened.data);
+    padded[2] = 1;
+    assert.throws(() => worldDecode(padded), /not decodable/);
+  });
+});
+
+describe("parameter sets resolve by name", () => {
+  it("gives back the struct the action parser range-checks against", () => {
+    assert.equal(paramsNamed("v1"), PARAMS_V1);
+    assert.equal(paramsNamed("v2"), PARAMS_V2);
+    // A record that inlined the numbers rather than naming a set still works.
+    assert.equal(paramsNamed(PARAMS_V1), PARAMS_V1);
+  });
+
+  it("refuses a name it does not know rather than guessing", () => {
+    assert.throws(() => paramsNamed("v3"), /unknown parameter set/);
   });
 });

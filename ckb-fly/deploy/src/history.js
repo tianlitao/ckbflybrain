@@ -24,49 +24,7 @@
 
 import * as ccc from "@ckb-ccc/core";
 
-import * as plan from "./plan.js";
-
-/**
- * Decode a `WitnessArgs`.
- *
- * The layout is a molecule table of three `BytesOpt` fields — lock, inputType,
- * outputType — and an `BytesOpt` is an option of a byte vector, which molecule encodes as
- * a bare `Bytes` whose length of zero means `None`. So each field is either empty or a
- * four-byte length followed by that many bytes.
- *
- * This is written out rather than taken from CCC's `WitnessArgs.from`, which returns
- * `undefined` for every field of a witness this shape — including one that demonstrably
- * carries a six-byte action. The format is nine lines of code and does not need a wrapper
- * that has to be debugged first.
- *
- * @param {string} hex
- * @returns {{lock: string|null, inputType: string|null, outputType: string|null}}
- */
-export function readWitnessArgs(hex) {
-  const b = Buffer.from(hex.slice(2), "hex");
-  const u32 = (o) => b.readUInt32LE(o);
-  const total = u32(0);
-  if (total !== b.length) {
-    throw new Error(`WitnessArgs says ${total} bytes, the witness is ${b.length}`);
-  }
-  const offsets = [u32(4), u32(8), u32(12)];
-  const field = (from, to) => {
-    if (from === to) {
-      return null;
-    }
-    const len = u32(from);
-    const start = from + 4;
-    if (start + len > to) {
-      throw new Error("a WitnessArgs field overruns its own table");
-    }
-    return "0x" + b.subarray(start, start + len).toString("hex");
-  };
-  return {
-    lock: field(offsets[0], offsets[1]),
-    inputType: field(offsets[1], offsets[2]),
-    outputType: field(offsets[2], total),
-  };
-}
+import { action as actionCodec, decodeState, paramsNamed, readWitnessArgs } from "./fly.js";
 
 /**
  * The fly's identity, as the chain sees it.
@@ -83,10 +41,33 @@ export function identity({ deployment }) {
     typeScript,
     typeHash: typeScript.hash(),
     lockScript: ccc.Script.from(deployment.fly.lockScript),
+    // The name the record stores, for display and for a caller that wants to look the set up.
     params: deployment.params,
+    // The struct itself, for anything that has to range-check an action against it. Resolved
+    // here rather than at each use because every reader of a record needs the same answer.
+    paramsStruct: paramsNamed(deployment.params),
     economics: deployment.economics,
     codeCells: deployment.codeCells,
   };
+}
+
+/**
+ * Every live cell wearing a type script.
+ *
+ * Plural on purpose. `findSingletonCellByType` returns the first of these and says nothing
+ * about the rest, which is fine right up until a fly is branched — and a branched fly is not
+ * hypothetical: the type script validates one transaction at a time, so two transactions that
+ * each consume a different predecessor are both valid, and the chain has no way to prefer one.
+ * Everything downstream of a singleton lookup then picks a branch silently.
+ *
+ * @returns {Promise<object[]>} the live cells, in the indexer's order
+ */
+export async function liveCells(client, typeScript) {
+  const cells = [];
+  for await (const cell of client.findCellsByType(typeScript, true)) {
+    cells.push(cell);
+  }
+  return cells;
 }
 
 /**
@@ -94,15 +75,21 @@ export function identity({ deployment }) {
  *
  * Found by asking the chain rather than by trusting a stored out point, so a stale
  * deployment record cannot make the indexer report a fly that has already moved on.
+ *
+ * When more than one cell wears the script this returns the indexer's first and does not
+ * pretend otherwise: the *report* belongs to whoever is looking (`watch.ambiguity`), and the
+ * *refusal* to whoever is about to spend one (`watch.describeBranches`). Throwing here would
+ * mean a branched fly takes the whole page down, which is a worse answer than showing it with
+ * a warning — the fly is still perfectly readable, it just is not one fly any more.
  */
 export async function findHead(client, { typeScript }) {
-  const cell = await client.findSingletonCellByType(typeScript, true);
-  if (!cell) {
+  const cells = await liveCells(client, typeScript);
+  if (cells.length === 0) {
     throw new Error(
       `no live cell wears type script ${typeScript.hash()}. Either the fly has not been created yet, or its successor is not yet committed.`,
     );
   }
-  return cell;
+  return cells[0];
 }
 
 /**
@@ -136,7 +123,7 @@ export async function readChain({
   full = false,
   stopAt = null,
 }) {
-  const { typeHash, params } = id;
+  const { typeHash, paramsStruct } = id;
 
   // Cell lookups are the expensive part of the walk and the same cell is asked for more
   // than once, so they are cached for the duration of one read.
@@ -187,11 +174,7 @@ export async function readChain({
     }
 
     const isNewest = entries.length === 0;
-    const state = plan.decode({
-      params,
-      state: stateHex,
-      full: full && isNewest,
-    });
+    const state = decodeState(ccc.bytesFrom(stateHex), { full: full && isNewest });
 
     let action = null;
     let actionBytes = null;
@@ -206,9 +189,10 @@ export async function readChain({
           `${outPoint.txHash} consumes a fly without declaring an action. The type script reads the action from witness[${flyInputIndex}].inputType, so this transaction could not have been accepted.`,
         );
       }
-      // Decoded and validated by the contract's own parser, so a history entry cannot
-      // describe an action the fly would have refused.
-      action = plan.decodeAction({ params, action: actionBytes });
+      // Decoded and validated by the contract's own parser — the JavaScript mirror of it,
+      // which `test/golden.test.js` pins against `flyplan decode-action` object for object,
+      // so a history entry cannot describe an action the fly would have refused.
+      action = actionCodec.decode(actionBytes, paramsStruct);
     }
 
     entries.push({

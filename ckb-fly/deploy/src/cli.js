@@ -52,7 +52,6 @@ import { pathToFileURL } from "node:url";
 import * as ccc from "@ckb-ccc/core";
 
 import {
-  PROJECT_ROOT,
   N,
   TAG,
   CH,
@@ -61,13 +60,16 @@ import {
   ECON_TESTNET,
   ECON_FREE,
   SHANNONS_PER_CKB,
+  decodeState,
+  genesisState,
+} from "./fly.js";
+import {
+  PROJECT_ROOT,
   flybrainBinary,
   flylockBinary,
   flyworldBinary,
   circuitTable,
-  decodeState,
-  genesisState,
-} from "./fly.js";
+} from "./artifacts.js";
 import * as plan from "./plan.js";
 import { findHead, identity, readChain, summarise } from "./history.js";
 import { describeBranches, lockKind, signableLock } from "./watch.js";

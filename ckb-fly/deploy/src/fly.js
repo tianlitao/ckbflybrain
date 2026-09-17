@@ -19,17 +19,14 @@
  * a server, so the encoders have to exist in JavaScript — and having them exist, they
  * have to be checked. That is the golden test's whole job.
  *
+ * The filesystem half — the contract binaries and the connectome table — lives in
+ * `src/artifacts.js`. Keeping it out of this file is what lets a page import the encoders
+ * without dragging `node:fs` into the bundle. Nothing below touches the filesystem.
+ *
  * @module fly
  */
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-
 import * as ccc from "@ckb-ccc/core";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-export const PROJECT_ROOT = join(HERE, "..", "..");
 
 // ---------------------------------------------------------------- constants
 
@@ -44,6 +41,9 @@ export const S = 6522;
 
 /** State cell data length: `128 + 7n`. */
 export const STATE_LEN = 128 + 7 * N;
+
+/** Chronicle cell data length — `flycore::world::WORLD_LEN`, fixed and independent of `N`. */
+export const WORLD_LEN = 128;
 
 /** Byte length of the instance nonce that makes two flies two organisms. */
 export const INSTANCE_LEN = 8;
@@ -95,6 +95,14 @@ export const PARAMS_V2 = {
   maxSteps: 64,
   persistInput: true,
 };
+
+/**
+ * The parameter sets by the name a deployment record uses.
+ *
+ * Kept next to the two sets rather than at the lookup that needs it, so that adding a third
+ * to Rust means adding a line to the same place the other two are described.
+ */
+export const PARAMS_SETS = { v1: PARAMS_V1, v2: PARAMS_V2 };
 
 /**
  * `Economics::TESTNET` — 0.0001 CKB per step of life, 128 steps per unit of stimulus
@@ -212,18 +220,44 @@ export function genesisState({ energy, bornBlock = 0n }) {
   return buf;
 }
 
-/** Decode a state cell for display. Mirrors the Rust layout; not used for validation. */
-export function decodeState(bytes) {
+/**
+ * Decode a state cell for display. Mirrors the Rust layout; not used for validation.
+ *
+ * The output is `flyplan decode`'s JSON, field for field and **type for type**, which is
+ * worth being explicit about because the two conventions in this project are not the same
+ * one: a u64 is a decimal string here, and everything narrower is a number. That is not a
+ * choice made here — it is what the Rust side already prints, and matching it is what lets
+ * the indexer swap `flyplan decode` for this function without a single byte of the JSON it
+ * serves changing.
+ *
+ * `full` adds the three per-neuron arrays. They are opt-in because they are 465 numbers
+ * and most callers only print a summary — but the ring attractor cannot be drawn without
+ * them, and a browser that is drawing a fly has no `flyplan decode --full` to ask. The
+ * counts below are always present: they cost one pass and answer "did anything happen".
+ *
+ * @param {Uint8Array} bytes
+ * @param {{full?: boolean}} [options]
+ */
+export function decodeState(bytes, { full = false } = {}) {
   if (bytes.length !== STATE_LEN) {
     throw new Error(`state is ${bytes.length} bytes, expected ${STATE_LEN}`);
   }
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  // A u64 read as a BigInt and rendered as a decimal string — never through a Number, which
+  // would round past 2^53 and turn a step counter into a plausible lie.
+  const u64 = (o) => dv.getBigUint64(o, true).toString();
+  const i64 = (o) => dv.getBigInt64(o, true).toString();
   const hist = [];
   for (let w = 0; w < WEDGES; w++) hist.push(dv.getUint16(96 + 2 * w, true));
   const nonZero = (off, len, step, read) => {
     let n = 0;
     for (let i = 0; i < len; i += step) if (read(off + i) !== 0) n++;
     return n;
+  };
+  const array = (off, step, read) => {
+    const out = new Array(N);
+    for (let i = 0; i < N; i++) out[i] = read(off + i * step);
+    return out;
   };
   return {
     version: bytes[0],
@@ -235,20 +269,99 @@ export function decodeState(bytes) {
     generation: dv.getUint32(8, true),
     headX: dv.getInt32(12, true),
     headY: dv.getInt32(16, true),
-    step: dv.getBigUint64(24, true),
-    energy: dv.getBigUint64(32, true),
-    totalSpikes: dv.getBigUint64(40, true),
-    lifeSteps: dv.getBigUint64(48, true),
-    lifeSpikes: dv.getBigUint64(56, true),
-    bornBlock: dv.getBigUint64(64, true),
-    stimUntil: dv.getBigUint64(72, true),
-    posX: dv.getBigInt64(80, true),
-    posY: dv.getBigInt64(88, true),
+    step: u64(24),
+    energy: u64(32),
+    totalSpikes: u64(40),
+    lifeSteps: u64(48),
+    lifeSpikes: u64(56),
+    bornBlock: u64(64),
+    stimUntil: u64(72),
+    posX: i64(80),
+    posY: i64(88),
     headingHist: hist,
     // Counts rather than the arrays themselves: 155 values is a lot to print.
     nonZeroV: nonZero(128, N, 2, (o) => dv.getInt16(o, true)),
     nonZeroBias: nonZero(128 + 2 * N, N, 1, (o) => dv.getInt8(o)),
     nonZeroInp: nonZero(128 + 3 * N, N, 4, (o) => dv.getInt32(o, true)),
+    // Present only on request, so a summary stays a summary. The keys are absent rather
+    // than empty, because a caller that draws the ring asks for them and a caller that
+    // does not should not be able to draw 155 zeros by accident.
+    ...(full
+      ? {
+          v: array(128, 2, (o) => dv.getInt16(o, true)),
+          bias: array(128 + 2 * N, 1, (o) => dv.getInt8(o)),
+          inp: array(128 + 3 * N, 4, (o) => dv.getInt32(o, true)),
+        }
+      : {}),
+  };
+}
+
+/**
+ * The parameter set a deployment record names.
+ *
+ * A record stores `"v1"`, not the numbers, because the numbers live in Rust and a record
+ * that copied them would be a second copy to drift. Everything that reads a record — the
+ * Node indexer and the browser both — has to turn that name back into the struct the action
+ * parser range-checks against, so the lookup lives here rather than in each caller.
+ *
+ * An object passes through unchanged, so a record that inlined the numbers still works.
+ */
+export function paramsNamed(set) {
+  if (set && typeof set === "object") {
+    return set;
+  }
+  const found = PARAMS_SETS[set];
+  if (!found) {
+    throw new Error(
+      `unknown parameter set ${JSON.stringify(set)}; this build knows ${Object.keys(PARAMS_SETS).join(", ")}`,
+    );
+  }
+  return found;
+}
+
+/**
+ * Decode a `WitnessArgs`.
+ *
+ * The layout is a molecule table of three `BytesOpt` fields — lock, inputType, outputType —
+ * and a `BytesOpt` is an option of a byte vector, which molecule encodes as a bare `Bytes`
+ * whose length of zero means `None`. So each field is either empty or a four-byte length
+ * followed by that many bytes.
+ *
+ * This is written out rather than taken from CCC's `WitnessArgs.from`, which returns
+ * `undefined` for every field of a witness this shape — including one that demonstrably
+ * carries a six-byte action. The format is a dozen lines of code and does not need a wrapper
+ * that has to be debugged first.
+ *
+ * It lives here, in the encoding core, rather than in the chain reader that first needed it:
+ * a browser recovering a history decodes the same witnesses a Node indexer does, and two
+ * implementations of one format is how they come to disagree.
+ *
+ * @param {string} hex
+ * @returns {{lock: string|null, inputType: string|null, outputType: string|null}}
+ */
+export function readWitnessArgs(hex) {
+  const b = ccc.bytesFrom(hex);
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const total = dv.getUint32(0, true);
+  if (total !== b.length) {
+    throw new Error(`WitnessArgs says ${total} bytes, the witness is ${b.length}`);
+  }
+  const offsets = [dv.getUint32(4, true), dv.getUint32(8, true), dv.getUint32(12, true)];
+  const field = (from, to) => {
+    if (from === to) {
+      return null;
+    }
+    const len = dv.getUint32(from, true);
+    const start = from + 4;
+    if (start + len > to) {
+      throw new Error("a WitnessArgs field overruns its own table");
+    }
+    return ccc.hexFrom(b.subarray(start, start + len));
+  };
+  return {
+    lock: field(offsets[0], offsets[1]),
+    inputType: field(offsets[1], offsets[2]),
+    outputType: field(offsets[2], total),
   };
 }
 
@@ -282,38 +395,119 @@ export const action = {
     dv.setBigUint64(9, BigInt(bornBlock), true);
     return buf;
   },
+
+  /**
+   * Parse and validate a witness action, mirroring `flycore::Action::decode`.
+   *
+   * A history entry that shows an action is showing one the fly accepted: the action in the
+   * witness is not a claim about what happened, it is the input the type script validated
+   * before it agreed to the transition. Decoding it here with the same rules — and refusing
+   * with the same reason — is what keeps the browser's history from describing a move that
+   * never happened. It is also why the browser needs this at all: it cannot shell out to
+   * `flyplan decode-action`.
+   *
+   * Refused exactly as the contract refuses, so a decode that succeeds here is a decode the
+   * contract would have accepted:
+   *
+   * | reason | when |
+   * |---|---|
+   * | `Truncated` | shorter than the tag's payload |
+   * | `UnknownTag` | the tag is not one of the four |
+   * | `TrailingBytes` | longer than the tag's payload — one action, one encoding |
+   * | `BadSteps` | a ticking action asked for 0, or more than `params.maxSteps` |
+   * | `BadStimulus` | channel outside 1..=4, strength 0, or a cue past the last wedge |
+   * | `ZeroAmount` | `feed` or `resurrect` asked for zero |
+   *
+   * @param {Uint8Array|string} bytes
+   * @param {{maxSteps: number}} params
+   * @returns {{kind: string, steps: number, channel?: number, param?: number,
+   *            strength?: number, bornBlock?: number}}
+   */
+  decode(bytes, params) {
+    const b = typeof bytes === "string" ? ccc.bytesFrom(bytes) : bytes;
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    const fail = (reason) => {
+      throw new Error(`action: ${reason}`);
+    };
+
+    if (b.length < 1) {
+      fail("Truncated");
+    }
+    const tag = b[0];
+    const u16 = (o) => {
+      if (o + 2 > b.length) fail("Truncated");
+      return dv.getUint16(o, true);
+    };
+    const u64 = (o) => {
+      if (o + 8 > b.length) fail("Truncated");
+      return dv.getBigUint64(o, true);
+    };
+    const ticking = (v) => {
+      if (v === 0 || v > params.maxSteps) fail("BadSteps");
+      return v;
+    };
+    // `flyplan decode-action` prints a u64 as a JSON number, and this matches it — but only
+    // after checking the value fits. This is a JavaScript limit, not a contract rule, so it
+    // gets its own kind of error rather than borrowing one of the contract's names. It should
+    // never fire: `feed` and `resurrect` steps are bounded by the fly's energy, energy is
+    // bounded by the capacity backing it, and CKB's whole supply is about 2^62 shannons — so
+    // a step count that needs 54 bits is one the economics cannot produce. If it does fire,
+    // refusing beats printing a number that is nearly right.
+    const counted = (v, what) => {
+      if (v > 9_007_199_254_740_991n) {
+        throw new Error(`${what} is ${v}, which JavaScript cannot represent exactly`);
+      }
+      return Number(v);
+    };
+
+    let decoded;
+    let want;
+    if (tag === TAG.TICK) {
+      decoded = { kind: "tick", steps: ticking(u16(1)) };
+      want = 3;
+    } else if (tag === TAG.STIMULATE) {
+      if (b.length < 5) {
+        fail("Truncated");
+      }
+      const channel = b[1];
+      const param = b[2];
+      const strength = b[3];
+      if (channel === 0 || channel > CH.SHOCK || strength === 0) {
+        fail("BadStimulus");
+      }
+      if (channel === CH.CUE && param >= WEDGES) {
+        fail("BadStimulus");
+      }
+      decoded = { kind: "stimulate", channel, param, strength, steps: ticking(u16(4)) };
+      want = 6;
+    } else if (tag === TAG.FEED) {
+      const steps = u64(1);
+      if (steps === 0n) {
+        fail("ZeroAmount");
+      }
+      decoded = { kind: "feed", steps: counted(steps, "a feed of") };
+      want = 9;
+    } else if (tag === TAG.RESURRECT) {
+      const steps = u64(1);
+      if (steps === 0n) {
+        fail("ZeroAmount");
+      }
+      decoded = {
+        kind: "resurrect",
+        steps: counted(steps, "a resurrection of"),
+        bornBlock: counted(u64(9), "a born block of"),
+      };
+      want = 17;
+    } else {
+      fail(`UnknownTag(${tag})`);
+    }
+
+    if (b.length !== want) {
+      fail("TrailingBytes");
+    }
+    return decoded;
+  },
 };
-
-// ---------------------------------------------------------------- artifacts
-
-function readArtifact(rel) {
-  return new Uint8Array(readFileSync(join(PROJECT_ROOT, rel)));
-}
-
-/** The `flybrain` type script binary, stripped, from `build/release/`. */
-export function flybrainBinary(mode = "release") {
-  return readArtifact(join("build", mode, "flybrain"));
-}
-
-/** The `flylock` lock script binary, stripped. */
-export function flylockBinary(mode = "release") {
-  return readArtifact(join("build", mode, "flylock"));
-}
-
-/** The `flyworld` type script binary, stripped. */
-export function flyworldBinary(mode = "release") {
-  return readArtifact(join("build", mode, "flyworld"));
-}
-
-/** The 15,065-byte connectome table. */
-export function circuitTable() {
-  return readArtifact(join("crates", "flycircuit", "data", "circuit.bin"));
-}
-
-/** keccak256 of the connectome — the value that goes in the args, and on BSC's `circuitHash()`. */
-export function circuitHash() {
-  return keccak256(circuitTable());
-}
 
 /**
  * Occupied capacity of a cell, in shannons: 1 byte = 1 CKB.
@@ -359,4 +553,117 @@ export function requiredCapacity(economics, energy) {
  */
 export function stimCost(economics, strength) {
   return economics.stimCostSteps * BigInt(strength);
+}
+
+// ---------------------------------------------------------------- the connectome
+
+/**
+ * The connectome's header and per-neuron layout, read out of the packed table.
+ *
+ * `flyplan circuit --layout` exposes the same thing, and this is the mirror of it. A page
+ * has the table (it is 15 KB, shipped next to `index.html`) but cannot ask Rust where each
+ * neuron sits — and it needs to know, because a ring attractor drawn as 155 anonymous
+ * numbers is not a ring attractor. `wedge` is the compass wedge a neuron belongs to, or
+ * `255` for the cells that are not part of the ring at all.
+ *
+ * The table is big-endian in its header and unpadded everywhere, which is worth stating
+ * because every other format in this project is little-endian:
+ *
+ * ```text
+ * [0]     u8        version
+ * [1]     u8        n
+ * [2..4]  u16be     synapse count
+ * type    n x u8
+ * wedge   n x u8
+ * side    n x u8
+ * offsets (n+1) x u16be
+ * syn     s x (u8 post, u8 weight)
+ * root    n x u64be
+ * ```
+ *
+ * The three per-neuron arrays are contiguous from byte 4, which is why this is a slice
+ * rather than a loop over a decoder.
+ *
+ * @param {Uint8Array} table the bytes of `crates/flycircuit/data/circuit.bin`
+ */
+export function circuitLayout(table) {
+  if (table.length < 4) {
+    throw new Error(`circuit table is ${table.length} bytes, too short to have a header`);
+  }
+  const [version, n, hi, lo] = table;
+  if (version !== 1) {
+    throw new Error(`circuit table version ${version}, this decoder understands 1`);
+  }
+  if (n === 0) {
+    throw new Error("circuit table claims zero neurons");
+  }
+  const s = (hi << 8) | lo;
+  const want = 13 * n + 2 * s + 6;
+  if (table.length !== want) {
+    throw new Error(`circuit table is ${table.length} bytes, its header implies ${want}`);
+  }
+  const layout = new Array(n);
+  for (let i = 0; i < n; i++) {
+    layout[i] = { type: table[4 + i], wedge: table[4 + n + i], side: table[4 + 2 * n + i] };
+  }
+  return { hash: ccc.hexFrom(keccak256(table)), bytes: table.length, n, wedges: WEDGES, layout };
+}
+
+// ---------------------------------------------------------------- the chronicle
+
+/**
+ * Decode a chronicle cell — `flyworld`'s state, mirrored from `flycore::world`.
+ *
+ * The chronicle is the fly's biography written by the same transaction that moved it: the
+ * type script refuses any chronicle that is not the exact record of the fly beside it. So
+ * decoding it is the same kind of act as decoding a state, and it belongs in the same file
+ * for the same reason — a page that shows a fly's sightings is showing chain data, and it
+ * should be reading the format rather than a summary of it.
+ *
+ * Every field is a fixed offset. `alive` is one byte, `generation` a u32, the rest u64, and
+ * the padding bytes are checked because `World::decode` checks them: a chronicle with a
+ * non-zero pad is not a chronicle, and accepting one here would mean the page could draw a
+ * cell the contract would have refused.
+ *
+ * Like `decodeState`, the output is `flyplan world-decode`'s JSON exactly: a u64 is a decimal
+ * string, a u32 is a number. A reader can compare the two without knowing which one it is
+ * holding, which is the only property that makes a mirror worth having.
+ *
+ * @param {Uint8Array} bytes 128 bytes
+ */
+export function worldDecode(bytes) {
+  const malformed = () => new Error(`the chronicle is not decodable: ${bytes.length} bytes`);
+  if (bytes.length !== WORLD_LEN) {
+    throw malformed();
+  }
+  if (bytes[0] !== 1) {
+    throw malformed();
+  }
+  if (bytes[1] > 1 || bytes[2] !== 0 || bytes[3] !== 0 || bytes[88] !== 0) {
+    throw malformed();
+  }
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const u64 = (o) => dv.getBigUint64(o, true).toString();
+  const totalAdded = dv.getBigUint64(72, true);
+  const totalReleased = dv.getBigUint64(64, true);
+  return {
+    alive: bytes[1] === 1,
+    generation: dv.getUint32(4, true),
+    bornStep: u64(8),
+    diedStep: u64(16),
+    step: u64(24),
+    energy: u64(32),
+    lifeSteps: u64(40),
+    totalSpikes: u64(48),
+    capacity: u64(56),
+    totalReleased: u64(64),
+    totalAdded: u64(72),
+    // Derived rather than stored, exactly as `World::net_capacity` derives it. Signed, so the
+    // subtraction happens in BigInt and only the result is rendered: a fly its tickers have
+    // cost more than its feeders gave it is a fact worth being able to display rather than a
+    // reason to clamp.
+    netCapacity: (totalAdded - totalReleased).toString(),
+    sightings: u64(80),
+    stateHash: ccc.hexFrom(bytes.subarray(96, 128)),
+  };
 }
