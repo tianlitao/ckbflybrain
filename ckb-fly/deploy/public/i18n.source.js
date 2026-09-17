@@ -160,23 +160,17 @@ const EN = {
   "wallet.balance": "balance",
   "wallet.none": "—",
   "wallet.wallet": "wallet",
-  "wallet.connect": "connect {name}",
+  "wallet.connectOpen": "Connect a wallet",
   "wallet.disconnect": "disconnect",
-  "wallet.noWallet": "no wallet in this browser",
-  "wallet.asking": "asking {name} for an account…",
   "wallet.connected": "connected {address}…",
   "wallet.noteConnected":
     "Clicks in the Drive panel are signed by this wallet and paid for from its balance. The " +
     "server builds the transaction — the successor state is the Rust simulation's — but it " +
     "signs nothing and needs no key of its own.",
   "wallet.noteOffered":
-    "Connect from the button at the top right of this page. Offered by this browser: {names}. " +
-    "Connecting one lets it pay for and sign a transition; the server never sees the key.",
-  "wallet.noteNone":
-    "No wallet found in this browser — look for the control at the top right. UTXO Global is a " +
-    "browser extension; JoyID needs no extension, so it should be offered here. If nothing is, " +
-    "this browser is refusing to run the connectors at all (a WebView or a private-mode window " +
-    "will do that).",
+    "Open the wallet list from the button at the top right. That is CCC's own connector, so it "
+    + "offers every wallet CCC supports — one that is not installed will say so when you pick it. "
+    + "Once connected it pays for and signs a state transition; the server never sees the key.",
 
   "drive.heading": "Drive",
   "drive.tick": "tick {n}",
@@ -345,20 +339,15 @@ const ZH = {
   "wallet.balance": "余额",
   "wallet.none": "—",
   "wallet.wallet": "钱包",
-  "wallet.connect": "连接 {name}",
+  "wallet.connectOpen": "连接钱包",
   "wallet.disconnect": "断开",
-  "wallet.noWallet": "这个浏览器里没有钱包",
-  "wallet.asking": "正在向 {name} 请求一个账户…",
   "wallet.connected": "已连接 {address}…",
   "wallet.noteConnected":
     "在「驱动」面板里点击，由这个钱包签名、并从它的余额付费。交易由服务器组装——后继状态来自 " +
     "Rust 模拟——但服务器不签名，也不需要任何自己的钥匙。",
   "wallet.noteOffered":
-    "请用本页右上角的按钮连接。这个浏览器提供：{names}。连上之后它就能为一次状态转换付费并签名；" +
-    "服务器永远看不到私钥。",
-  "wallet.noteNone":
-    "这个浏览器里没找到钱包——请看右上角的控件。UTXO Global 是浏览器扩展；JoyID 不需要装任何东西，" +
-    "所以这里本该列出它。如果一个都没有，说明这个浏览器根本不让连接器运行（WebView 或无痕窗口会这样）。",
+    "用右上角的按钮打开钱包列表。那是 CCC 自己的连接器，所以列出 CCC 支持的全部钱包——"
+    + "还没装的那个，选中时会告诉你。连上之后它就能为一次状态转换付费并签名；服务器永远看不到私钥。",
 
   "drive.heading": "驱动",
   "drive.tick": "推进 {n} 步",

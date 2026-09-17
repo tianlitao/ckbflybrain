@@ -74,10 +74,16 @@ describe("the two languages", () => {
     // pins the shape: the parameter is passed straight through.
     setLang("zh");
     assert.equal(t("roster.step", { n: "0xf6a509c8" }), "第 0xf6a509c8 步");
-    assert.equal(t("wallet.connect", { name: "CKB" }), "连接 CKB");
+    assert.equal(
+      t("wallet.connected", { address: "ckt1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt" }),
+      "已连接 ckt1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt…",
+    );
     setLang("en");
     assert.equal(t("roster.step", { n: "0xf6a509c8" }), "step 0xf6a509c8");
-    assert.equal(t("wallet.connect", { name: "CKB" }), "connect CKB");
+    assert.equal(
+      t("wallet.connected", { address: "ckt1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt" }),
+      "connected ckt1qzda0cr08m85hc8jlnfp3zer7xulejywt49kt…",
+    );
   });
 
   it("falls back to English rather than to a hole", () => {

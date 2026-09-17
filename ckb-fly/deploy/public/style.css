@@ -458,3 +458,44 @@ footer {
 footer .bad {
   color: var(--bad);
 }
+
+/* CCC's connector is the wallet picker: a Lit element that renders the whole modal, fixed and
+   full-viewport. It is kept out of the way until the reader asks for it — `visibility` rather than
+   `display`, because the element measures its own scene to size the card and a `display: none`
+   element measures zero. A hidden element takes no clicks, so this also keeps it from swallowing
+   the page underneath. */
+ccc-connector.wallet-closed {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The connector's theme.
+   `@ckb-ccc/connector` ships no stylesheet. Its styles are Lit `css` blocks that read these
+   twelve custom properties, and their defaults live in `@ckb-ccc/connector-react` — which this
+   page does not use, because it does not use React. With none of them defined, `background:
+   var(--background)` on the modal card resolves to nothing, so the card is transparent: the page
+   shows through it and the wallet names sit on top of the fly. That is what it looked like.
+
+   The values are the light-theme defaults from CCC's connector documentation, matched to this
+   page's own neutrals wherever the page already has one — a modal is a surface, and a surface
+   that is `#fff` while every panel around it is `#fff` is the same decision written twice.
+
+   Set on the element rather than on `:root`, because the connector is the only thing that reads
+   them and custom properties inherit into its shadow tree from here. */
+ccc-connector {
+  --background: var(--panel);
+  --divider: var(--line);
+  --btn-primary: var(--bg);
+  --btn-primary-hover: var(--line);
+  --btn-secondary: var(--line);
+  --btn-secondary-hover: #ccc;
+  --btn-color: var(--ink);
+  --btn-color-hover: var(--ink);
+  --icon-primary: var(--ink);
+  --icon-secondary: var(--muted);
+  --tip-color: var(--muted);
+  --tip-color-hover: var(--ink);
+  /* The connector's own text inherits `color`, and `--btn-color` falls back to it. Set here
+     rather than inherited from `body` so the modal cannot be themed by accident. */
+  color: var(--ink);
+}

@@ -86,7 +86,7 @@ import { Xverse } from "@ckb-ccc/xverse";
  *
  * @returns {string}
  */
-function appIcon() {
+export function appIcon() {
   const svg =
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>" +
     "<circle cx='16' cy='16' r='15' fill='#0b0b0b'/>" +
@@ -211,6 +211,21 @@ export function createWallet(rpc) {
      * Nothing is signed here and no transaction is built: this is the ceremony, and for JoyID it
      * involves a passkey and a popup, which is why it must be reached from a click.
      */
+    /**
+     * Take a signer chosen somewhere else.
+     *
+     * The connector owns the picker now — it renders the wallet list and the modal — so this
+     * object only needs the result. `connect()` is still here for the private-key path the tests
+     * use, where there is no UI to choose anything.
+     */
+    async adopt(info) {
+      name = info.name;
+      signer = info.signer;
+      address = await signer.getRecommendedAddress();
+      notify();
+      return { address };
+    },
+
     async connect(info) {
       // The *name from the list*, not the class name: the page is minified, so
       // `signer.constructor.name` renders as `r` and tells the reader nothing about which of
@@ -247,8 +262,16 @@ export function createWallet(rpc) {
      * Returns what the server predicted the transition would be, so the caller can show the
      * change before the chain confirms it — the indexer will report the same numbers a few
      * seconds later, from the chain, and the page should not have to guess in between.
+     *
+     * `feeRate` is optional and is the reader's choice when they made one: the fee comes out of
+     * their own change output, so a fee-rate control in the UI has to reach this call or it is a
+     * setting that does nothing. Left out, the server's number stands — which is what its "Auto"
+     * resolves to.
+     *
+     * @param {{ kind: string, steps?: number, channel?: number, param?: number, strength?: number }} spec
+     * @param {{ feeRate?: bigint|number|string }} [options]
      */
-    async drive(spec) {
+    async drive(spec, { feeRate } = {}) {
       if (!signer || !address) {
         throw new Error("no wallet is connected");
       }
@@ -273,7 +296,7 @@ export function createWallet(rpc) {
         );
       }
 
-      await tx.completeFeeBy(signer, BigInt(prepared.feeRate));
+      await tx.completeFeeBy(signer, BigInt(feeRate ?? prepared.feeRate));
       // After completion, never before: completing a fee can rewrite the witness list.
       tx.setWitnessArgsAt(flyIndex, { inputType: prepared.action });
 

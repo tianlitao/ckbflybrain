@@ -87,8 +87,15 @@ async function buildHarness(esbuild) {
     entry,
     [
       'import * as ccc from "@ckb-ccc/core";',
+      // The second import is not a convenience. The connector's wallet adapters are built on
+      // their **own** nested copy of core — `@ckb-ccc/connector@1.3.0` depends on `ccc@1.3.0`,
+      // which pins core 1.19.1, while this page is on 1.21.0 — so a signer the connector hands
+      // out is not an instance of the `Transaction` this page builds. Importing the umbrella
+      // here is the only way to get a signer from that other copy without installing it twice by
+      // hand, and the second test below is what makes the mismatch visible.
+      'import * as connectorCcc from "@ckb-ccc/ccc";',
       `import { createWallet } from ${JSON.stringify(join(DEPLOY, "public", "wallet.source.js"))};`,
-      "globalThis.__flyTest = { ccc, createWallet };",
+      "globalThis.__flyTest = { ccc, connectorCcc, createWallet };",
     ].join("\n"),
   );
 
@@ -116,13 +123,17 @@ function chromiumPath() {
 }
 
 describe("driving the fly from the browser", () => {
-  it("pays, signs, broadcasts, and the chain shows the transition", async (t) => {
-    const why = await unavailable();
-    if (why) {
-      t.skip(why);
-      return;
-    }
-
+  /**
+   * One click of "tick 64", through the real page, with a signer from the named copy of core.
+   *
+   * The whole reason this is a browser test is the page's own code: `wallet.drive()` fetches a
+   * relative URL, so it has to run on the indexer's origin, and it is the code a visitor's click
+   * runs rather than a re-implementation of it.
+   *
+   * @param {"ours"|"connectors"} whichCore `ours` is this page's core 1.21.0; `connectors` is the
+   *   nested 1.19.1 that `@ckb-ccc/connector` builds its wallet adapters on.
+   */
+  async function tick64(whichCore) {
     const { chromium } = await import(PLAYWRIGHT);
     const esbuild = await import("esbuild");
     const harness = await buildHarness(esbuild);
@@ -165,11 +176,18 @@ describe("driving the fly from the browser", () => {
       const key = readFileSync(KEY_FILE, "utf8").trim();
 
       const result = await page.evaluate(
-        async ({ key, rpc }) => {
-          const { ccc, createWallet } = globalThis.__flyTest;
-          const client = new ccc.ClientPublicTestnet({ url: rpc, fallbacks: [] });
+        async ({ key, rpc, whichCore }) => {
+          const { ccc, connectorCcc, createWallet } = globalThis.__flyTest;
           const wallet = createWallet(rpc);
-          await wallet.connect({ name: "test key", signer: new ccc.SignerCkbPrivateKey(client, key) });
+          // The private key stands in for the passkey a human would tap. Everything after it —
+          // `completeFeeBy`, the action in witness 0, the sign, the broadcast — is the same code
+          // for every signer, which is the property that makes this testable at all.
+          const core = whichCore === "ours" ? ccc : connectorCcc;
+          const client = new core.ClientPublicTestnet({ url: rpc, fallbacks: [] });
+          const signer = new core.SignerCkbPrivateKey(client, key);
+          // `adopt`, not `connect`: this is the entry the connector's picker uses, and the one
+          // that skips `signer.connect()` because the connector already did it.
+          await wallet.adopt({ name: whichCore, signer });
           try {
             const out = await wallet.drive({ kind: "tick", steps: 64 });
             return { ok: true, address: wallet.address(), txHash: out.txHash };
@@ -177,7 +195,7 @@ describe("driving the fly from the browser", () => {
             return { ok: false, error: String(err?.message ?? err) };
           }
         },
-        { key, rpc: RPC },
+        { key, rpc: RPC, whichCore },
       );
 
       assert.ok(result.ok, `drive() failed: ${result.error}`);
@@ -206,5 +224,37 @@ describe("driving the fly from the browser", () => {
     } finally {
       await browser.close();
     }
+  }
+
+  it("pays, signs, broadcasts, and the chain shows the transition", async (t) => {
+    const why = await unavailable();
+    if (why) {
+      t.skip(why);
+      return;
+    }
+    await tick64("ours");
+  });
+
+  it("does the same with a signer built on the connector's own copy of core", async (t) => {
+    // Two copies of `@ckb-ccc/core` are installed — this page's 1.21.0, and the 1.19.1 that
+    // `@ckb-ccc/connector@1.3.0` pulls in through `ccc@1.3.0` — and the connector's picker hands
+    // out signers from the second one. That is a real boundary: `wallet.drive()` builds the
+    // transaction with one class and the wallet signs it with another.
+    //
+    // It holds because both directions of that boundary are shape-based rather than
+    // `instanceof`-based, which was checked rather than assumed: `Transaction.from` returns a
+    // foreign transaction unchanged only when it is *its own* class, and otherwise reads
+    // `inputs`/`outputs`/`cellDeps`/`witnesses` off it and builds a fresh one — and
+    // `Client.sendTransaction` normalises the same way. So a 1.19.1 signer signs a correct 1.19.1
+    // copy of the 1.21.0 transaction, and the copy has the same shape back.
+    //
+    // Worth a live test rather than a comment, because the failure mode is not an exception: the
+    // wrong transaction would be built, signed and broadcast, and the fly would not move.
+    const why = await unavailable();
+    if (why) {
+      t.skip(why);
+      return;
+    }
+    await tick64("connectors");
   });
 });

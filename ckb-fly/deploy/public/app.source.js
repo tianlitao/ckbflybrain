@@ -17,7 +17,9 @@
  * the chain's states are the frames that actually happened.
  */
 
-import { createWallet } from "./wallet.source.js";
+import { WebComponentConnector } from "@ckb-ccc/connector";
+import { CLOSED, closeConnector, openConnector, settledSigner, watchConnector } from "./connector.source.js";
+import { appIcon, createWallet } from "./wallet.source.js";
 import { toCanvas, wedgeAngle } from "./geometry.source.js";
 import {
   applyLanguage,
@@ -38,6 +40,8 @@ let pinned = null; // a past transition being inspected, fetched in full, or nul
 let anim = null; // { from, to, t0 } — the interpolation in progress
 let drawn = null; // the state currently on screen, as the source of the next animation
 let wallet = null; // the visitor's wallet, if any: see wallet.source.js
+let connector = null; // CCC's own wallet picker, created once and kept — see renderWallet
+let connectorWatch = null; // the handle that lets this page close it without being answered
 let walletPick = 0; // which of the offered signers the reader chose
 
 // ------------------------------------------------------------------ fetching
@@ -747,6 +751,58 @@ function renderWallet() {
   const signers = wallet ? wallet.available() : [];
   const connected = wallet?.current() ?? null;
 
+  // The picker is CCC's own connector: a Lit element that renders the wallet list and the modal.
+  // Created once and never re-created, because it holds the connection.
+  //
+  // It lives on `document.body`, not in the bar, and starts hidden. The element *is* the modal —
+  // with no signer it renders a full-screen wallet list — so mounting it visibly would cover the
+  // fly the moment the page loaded, which on a page about watching a fly is the wrong first frame.
+  // The bar carries a plain control and the connector appears behind it; the list itself is
+  // entirely CCC's, and the wallets in it are whatever CCC ships adapters for.
+  //
+  // `clientOptions` is deliberately never set. The connector grows a network switcher when the
+  // application supplies one, and this page has exactly one chain — the one its server is
+  // indexing (`snap.network`). A reader who moved the connector to another chain would be asked
+  // to sign for a chain whose fly this page cannot see. Leaving it unset makes that control inert
+  // rather than hidden, which is the version that cannot get out of step with the server.
+  if (!connector && wallet) {
+    connector = new WebComponentConnector();
+    connector.client = wallet.client;
+    connector.name = "CKB Fly";
+    connector.icon = appIcon();
+    closeConnector(connector);
+
+    // What to do with a signer, from either of the two ways one arrives: the reader picked a
+    // wallet, or the connector re-established the connection it remembers from last time.
+    const adopt = (info) => {
+      // Already driving with it. The connector reports its signer again every time the modal
+      // closes, including closes that chose nothing.
+      if (!info || wallet.current() === info.signer) {
+        return;
+      }
+      wallet
+        .adopt(info)
+        // The address changes what `meta.drivable` means, so the snapshot is re-read rather than
+        // patched: one source of truth for the button state.
+        .then(() => loadSnapshot())
+        .then(() => {
+          setStatus(t("wallet.connected", { address: wallet.address().slice(0, 20) }));
+          renderWallet();
+          renderDrive();
+        })
+        .catch(reportError);
+    };
+
+    connectorWatch = watchConnector(connector, adopt);
+    document.body.append(connector);
+
+    // The connector keeps its own connection in `localStorage` and re-establishes it when it is
+    // mounted — so a reader who connected once comes back connected. This page knows nothing
+    // about that storage, and would otherwise show "connect a wallet" over a wallet that is
+    // already connected, with the Drive panel refusing clicks for no visible reason.
+    settledSigner(connector).then(adopt);
+  }
+
   bar.innerHTML = "";
   if (connected) {
     const label = document.createElement("span");
@@ -759,47 +815,28 @@ function renderWallet() {
     const button = document.createElement("button");
     button.className = "ghost";
     button.textContent = t("wallet.disconnect");
-    button.addEventListener("click", () => wallet.disconnect());
+    button.addEventListener("click", async () => {
+      // Both halves, and in this order. The connector holds its own copy of the connection and
+      // writes it to `localStorage`, so disconnecting only here would leave the modal offering a
+      // connected wallet and the next page load reconnecting it. Closing the modal is *our* doing
+      // here, so the watch is told not to read it as a choice — see `connector.source.js`.
+      if (connector) {
+        connectorWatch.muteNextClose();
+        connector.disconnect();
+      }
+      await wallet.disconnect();
+    });
     bar.append(label, button);
-  } else if (signers.length > 0) {
-    if (signers.length > 1) {
-      const pick = document.createElement("select");
-      signers.forEach((info, i) => {
-        const option = document.createElement("option");
-        option.value = String(i);
-        option.textContent = info.name;
-        pick.append(option);
-      });
-      pick.value = String(walletPick);
-      pick.addEventListener("change", () => {
-        walletPick = Number(pick.value);
-      });
-      bar.append(pick);
-    }
+  } else {
     const button = document.createElement("button");
     button.className = "primary";
-    button.textContent = t("wallet.connect", { name: signers[walletPick].name });
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      setStatus(t("wallet.asking", { name: signers[walletPick].name }));
-      try {
-        await wallet.connect(signers[walletPick]);
-        // The address changes what `meta.drivable` means, so the snapshot is re-read rather
-        // than patched: one source of truth for the button state.
-        await loadSnapshot();
-        setStatus(t("wallet.connected", { address: wallet.address().slice(0, 20) }));
-      } catch (err) {
-        reportError(err);
-      } finally {
-        button.disabled = false;
+    button.textContent = t("wallet.connectOpen");
+    button.addEventListener("click", () => {
+      if (connector) {
+        openConnector(connector);
       }
     });
     bar.append(button);
-  } else {
-    const label = document.createElement("span");
-    label.className = "wallet-account";
-    label.textContent = t("wallet.noWallet");
-    bar.append(label);
   }
 
   facts.innerHTML = "";
@@ -829,13 +866,28 @@ function renderWallet() {
       .catch(() => {});
   }
 
-  if (connected) {
-    note.textContent = t("wallet.noteConnected");
-  } else if (signers.length > 0) {
-    note.textContent = t("wallet.noteOffered", { names: signers.map((s) => s.name).join(", ") });
-  } else {
-    note.textContent = t("wallet.noteNone");
-  }
+  // Two states, not three: the connector decides what is offerable now, so this page no longer
+  // has an opinion about which wallets exist in this browser.
+  note.textContent = connected ? t("wallet.noteConnected") : t("wallet.noteOffered");
+}
+
+/**
+ * The fee rate the reader chose in CCC's own modal, or `undefined` for the server's number.
+ *
+ * The connected view of the connector has a **Fee Rate** control, and it is reachable from this
+ * page's own button — so a page that ignored it would offer a setting that silently does nothing,
+ * which is worse than not offering it. The choice is written to the connector's client, a
+ * `ClientWithFeeRate` wrapper the package does not export but which is what `client` returns at
+ * runtime. `undefined` there means "Auto", and Auto is the number the server already computed
+ * (`prepared.feeRate`), so the fallback needs no special case.
+ *
+ * It is the reader's call because it is the reader's coins: the fee comes out of their change
+ * output, and `completeFeeBy` is the step that decides how big it is.
+ *
+ * @returns {bigint|number|string|undefined}
+ */
+function connectorFeeRate() {
+  return connector?.client?.feeRate;
 }
 
 function renderDrive() {
@@ -871,7 +923,7 @@ function renderDrive() {
           // still the server's prediction (it came from the planner), which is why the numbers
           // are shown as predicted rather than as the chain's.
           setStatus(t("drive.asking", { kind: actionName(spec.kind) }));
-          const result = await wallet.drive(spec);
+          const result = await wallet.drive(spec, { feeRate: connectorFeeRate() });
           setStatus(t("drive.sent", { tx: result.txHash }));
           await loadSnapshot();
           return;

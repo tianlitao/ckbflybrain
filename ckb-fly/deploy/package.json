@@ -13,6 +13,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@ckb-ccc/connector": "^1.3.0",
     "@ckb-ccc/core": "^1.21.0",
     "@ckb-ccc/joy-id": "^1.2.3",
     "@ckb-ccc/okx": "^1.2.3",
