@@ -51,12 +51,22 @@ h2 {
 
 .masthead {
   /* Two explicit columns, not `flex-wrap`. The right-hand column holds the identity table,
-     whose widest row is a 64-character type-script hash with `word-break: break-all` — so its
+     whose widest row is a 66-character type-script hash with `word-break: break-all` — so its
      max-content width is enormous, and any layout that lets it take that width pushes the whole
      column onto a line of its own. Bounding it here is what keeps the wallet button beside the
-     title instead of under it. */
+     title instead of under it.
+
+     The bound is measured, not rounded. It was a flat `460px`, and the identity wants `570px` —
+     79px of label, 14px of gap, and 477px for the longest hash — so at 460 two of the six values
+     wrapped onto a second line, and the slack left over in the row (the standfirst stops at its
+     own measure, well short of its column) showed up as a 238px hole between the two columns.
+
+     `min()` rather than a second round number, so the bound gives way before the standfirst does:
+     above ~1270px the identity gets the 570px it needs, and below that it takes 45% of the row and
+     the prose keeps the rest. Without this the standfirst is squeezed to 350px at a 960px window,
+     which is the width at which an opening paragraph stops being readable. */
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(570px, 45%));
   gap: 24px 40px;
   align-items: start;
   max-width: 1280px;
@@ -257,7 +267,16 @@ main {
    and the paragraph reads as a grey block. `ch` on a proportional font is the width of `0`, which
    is close enough to the average character for this to mean "about 90 characters". */
 .caption {
-  max-width: 92ch;
+  /* The same character measure as `.standfirst`, not a wider one. These were `92ch`, which made a
+     caption's lines 48% longer than the page's own opening paragraph — and backwards, since this
+     is the *smaller* of the two. A measure is how far the eye travels back to find the start of the
+     next line, and small text tolerates less of that, not more. `62ch` is about 71 Latin characters
+     or 39 Chinese ones at this size, both inside the usual range; at `92ch` the Chinese ran to 58
+     characters a line, which is past the point where a reader starts re-reading lines.
+
+     Only three captions are wide enough to be affected — the two under the full-width panels and
+     the one under the ring. The rest sit in the 380px column and never reach either number. */
+  max-width: 62ch;
   margin: 10px 0 0;
   color: var(--muted);
   font-size: 12.5px;
@@ -500,7 +519,7 @@ button.ghost {
 .roster li {
   display: grid;
   /* Measured against the longest value each column can hold, in *both* languages, by
-     `test/roster-live.test.js` — which is the check that replaced `node roster-widths.mjs`, a
+     `test/panel-live.test.js` — which is the check that replaced `node roster-widths.mjs`, a
      script that no longer exists. The widths are not chosen by eye: with the previous numbers the
      step column was 5em and `第 1,024 步` needs 6.24em, so **four of five Chinese rows wrapped onto
      two lines** and the list read as a wall of broken pairs. The English rows did the same thing
@@ -509,8 +528,16 @@ button.ghost {
      Each column is sized for the largest value it can *reach*, not the largest one on screen
      today: `energy` grows with every feed, and `spikes` and `sightings` grow with every tick.
      A row that wraps is much worse than a column with room to spare — the whole point of this
-     table is that the eye can run down a column. */
-  grid-template-columns: 2em 11em 3.5em 6.5em 7em 9em 8em 9em 9em;
+     table is that the eye can run down a column.
+
+     The badge column is the flexible one, and it is the only place the slack can go: it is the
+     seam between what a fly *is* (index, instance, key badge) and what it *has* (step, energy,
+     life, spikes, sightings, net). Sized by content like the rest, the nine tracks came to 908px
+     inside a 1242px row, so every value stopped a third of a panel short of the right edge while
+     the row rules ran on past them — the table read as left-shifted, and the values are the one
+     thing on the page a reader compares down a column. `minmax()` rather than a bare `1fr` so the
+     track keeps a floor when the panel is narrow and `.roster` is scrolling instead. */
+  grid-template-columns: 2em 11em minmax(3.5em, 1fr) 6.5em 7em 9em 8em 9em 9em;
   gap: 12px;
   align-items: baseline;
   padding: 7px 8px;
@@ -545,6 +572,20 @@ button.ghost {
 
 .roster .net.positive {
   color: var(--good);
+}
+
+/* Right-aligned, because these are the columns a reader compares *down* and each track is sized for
+   the widest value it can reach — so a shorter value has room to spare, and spending that room on
+   the left is what puts every column's last character on one vertical rule. `--mono` is tabular, so
+   the digits line up under each other too. `.label` is only ever a value with a word around it
+   (`第 545 步`, `存活 · 1 代`, `20 次目击`); the identity block on the left is `.idx`, `.instance`
+   and the badge, and stays left-aligned. `.timeline` already right-aligns its numeric column — this
+   table was the odd one out. */
+.roster .label,
+.roster .energy,
+.roster .spikes,
+.roster .net {
+  text-align: right;
 }
 
 /* The organism this server holds the key for. Watching is unrestricted; driving is not, and

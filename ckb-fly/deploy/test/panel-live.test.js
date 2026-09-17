@@ -362,6 +362,73 @@ describe("the page a reader gets", () => {
     await choose(page, "zh");
   });
 
+  it("spends the width the panels give it, in both tables", async (t) => {
+    if (why) return t.skip(why);
+    // A grid of fixed tracks with no flexible one puts its content on the left and leaves the
+    // remainder as a hole on the right — and the row rules still run the full width, so the table
+    // reads as left-shifted rather than as narrow. The roster's nine tracks came to 908px inside a
+    // 1242px row, which left 325px of dead space beside every value on the page a reader is
+    // comparing down a column. Nothing about that is visible in the stylesheet.
+    const complaints = [];
+    for (const [name, rowSel] of [
+      ["roster", "#roster li"],
+      ["timeline", "#timeline li"],
+    ]) {
+      const seen = await page.evaluate((sel) => {
+        const li = document.querySelector(sel);
+        if (!li) return null;
+        const cs = getComputedStyle(li);
+        const b = li.getBoundingClientRect();
+        const kids = [...li.children];
+        if (!kids.length) return null;
+        return {
+          slackRight: Math.round(b.right - parseFloat(cs.paddingRight) - Math.max(...kids.map((k) => k.getBoundingClientRect().right))),
+          slackLeft: Math.round(Math.min(...kids.map((k) => k.getBoundingClientRect().left)) - (b.left + parseFloat(cs.paddingLeft))),
+        };
+      }, rowSel);
+      if (!seen) {
+        complaints.push(`${name}: no row to measure`);
+        continue;
+      }
+      // One pixel is rounding; more than that is a column that did not stretch.
+      if (seen.slackRight > 2) complaints.push(`${name}: ${seen.slackRight}px of dead space on the right`);
+      if (seen.slackLeft > 2) complaints.push(`${name}: ${seen.slackLeft}px of dead space on the left`);
+    }
+    assert.deepEqual(complaints, [], "a table does not use the width it is given");
+  });
+
+  it("keeps every paragraph within the measure of the page's own lead", async (t) => {
+    if (why) return t.skip(why);
+    // The opening paragraph sets the measure and nothing else may exceed it. This is the one
+    // comparison that gets the relationship the right way round: a caption is *smaller* text, and
+    // smaller text tolerates less line length rather than more. The captions were `92ch` against
+    // the standfirst's `62ch`, so every panel's explanation ran 48% longer per line than the page's
+    // own introduction — around 90 Latin characters, or 58 Chinese ones, which is past the point
+    // where a reader starts re-reading lines to find their place.
+    for (const code of ["zh", "en"]) {
+      await choose(page, code);
+      const seen = await page.evaluate(() => {
+        const lead = document.querySelector(".standfirst");
+        const blocks = [lead, ...document.querySelectorAll(".caption")].filter(Boolean);
+        return {
+          lead: Math.round(lead.getBoundingClientRect().width),
+          blocks: blocks.map((el) => ({
+            id: el.id || el.dataset.i18nHtml || "standfirst",
+            w: Math.round(el.getBoundingClientRect().width),
+            px: parseFloat(getComputedStyle(el).fontSize),
+          })),
+        };
+      });
+      const over = seen.blocks.filter((b) => b.w > seen.lead + 1);
+      assert.deepEqual(
+        over.map((b) => `${b.id} is ${b.w}px at ${b.px}px against a ${seen.lead}px lead`),
+        [],
+        `${code}: these paragraphs are wider than the page's opening paragraph`,
+      );
+    }
+    await choose(page, "zh");
+  });
+
   it("logs no errors while all of that happens", async (t) => {
     if (why) return t.skip(why);
     // Collected from the start of the run. A page that renders correctly while throwing in a
