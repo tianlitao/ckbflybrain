@@ -37,7 +37,7 @@ import { createFeed } from "./chain.source.js";
 import { loadSim } from "./sim.source.js";
 import { createPrepare } from "./prepare.source.js";
 import { decodeState } from "../src/fly.js";
-import { toCanvas, wedgeAngle } from "./geometry.source.js";
+import { toCanvas, wedgeAngle, wedgeOf } from "./geometry.source.js";
 import {
   applyLanguage,
   initLanguage,
@@ -112,6 +112,11 @@ function applySnapshot(next) {
   renderTimeline();
   renderWallet();
   renderDrive();
+
+  // The two canvases are not DOM, so the renderers above do not touch them. A new snapshot is the
+  // one thing that certainly changes what they should show — even when the state did not move,
+  // because arriving at the same state is news to nothing, but the first snapshot definitely is.
+  invalidate();
 }
 
 /**
@@ -201,6 +206,23 @@ function placeNeurons(circuit) {
 
 // ------------------------------------------------------------------ drawing
 
+/**
+ * Where the rings sit, in canvas units, and the type face the canvas labels use.
+ *
+ * `ringRadius` is the one place a ring index becomes a distance. `placeNeurons` decides the index
+ * and `drawRing` draws at the radius, and the two used to be numbers written out in both — a
+ * literal `150` here and a literal `150` there, agreeing by luck until the labels needed a third
+ * copy.
+ */
+const RING_OUTER = 250;
+const RING_INNER = 150;
+const RING_STEP = 52;
+const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+
+function ringRadius(ring) {
+  return ring === 0 ? RING_OUTER : RING_INNER - (ring - 1) * RING_STEP;
+}
+
 function fit(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
@@ -244,9 +266,7 @@ function drawRing(now) {
   const cx = size / 2;
   const cy = size / 2;
   const scale = size / 720;
-  const R = 250 * scale;
-  const innerTop = 150 * scale;
-  const innerStep = 52 * scale;
+  const R = RING_OUTER * scale;
 
   const { state, flash } = currentFrame(now);
   const params = snap.params;
@@ -254,73 +274,148 @@ function drawRing(now) {
     const magnitude = Math.min(1, Math.abs(v) / 2200);
     return (5 + magnitude * 9) * scale;
   };
-  const ink = getComputedStyle(document.body).color;
-  const muted = getComputedStyle(document.body).getPropertyValue("--faint").trim();
+  const theme = colors();
 
-  // ---- the wedge arcs: the heading histogram, which is the fly's memory of where it has
-  // pointed. Drawn first, under everything, so it reads as background structure.
+  const wedges = placed.wedges;
+  const half = Math.PI / wedges;
+  // Which wedge the bump is in, from the same table the arrows use — see `wedgeOf`. `null` when
+  // there is no heading at all (a shock collapses it to (0, 0)), in which case nothing is filled.
+  const bump =
+    state && Math.hypot(state.headX, state.headY) > 1
+      ? wedgeOf(state.headX, state.headY, wedges)
+      : null;
+
+  // ---- the sixteen wedges, first, as structure: a tick on every boundary and the wedge's number
+  // outside it. Without these the ring is a ring of dots — nothing on the page said that the fly
+  // has sixteen of anything, that `cue, wedge 4` lights exactly one of them, or that the
+  // `(headX, headY)` in the timeline is an angle rather than two more numbers.
+  ctx.strokeStyle = tint(theme.accent, 0.14);
+  ctx.lineWidth = 1 * scale;
+  for (let w = 0; w < wedges; w++) {
+    const at = wedgeAngle(w, wedges) - half;
+    const inner = (R - 22) * scale;
+    const outer = (R + 26) * scale;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(at) * inner, cy + Math.sin(at) * inner);
+    ctx.lineTo(cx + Math.cos(at) * outer, cy + Math.sin(at) * outer);
+    ctx.stroke();
+  }
+
+  // ---- the wedge the bump is in, filled, *under* the memory arcs: the one thing about a ring
+  // attractor that a reader can only get from the picture, and the answer to "where is it looking
+  // right now". Filled from the ring outwards, so it reads as the same kind of object as the
+  // history arc it sits under.
   const hist = state?.headingHist ?? [];
   const maxHist = Math.max(1, ...hist);
-  for (let w = 0; w < placed.wedges; w++) {
+  const reachOf = (w) => (26 + (hist[w] / maxHist) * 34) * scale;
+  if (bump !== null) {
+    const base = wedgeAngle(bump, wedges);
+    ctx.beginPath();
+    ctx.arc(cx, cy, R + reachOf(bump), base - half, base + half);
+    ctx.arc(cx, cy, R - 20 * scale, base + half, base - half, true);
+    ctx.closePath();
+    ctx.fillStyle = tint(theme.warm, 0.16);
+    ctx.fill();
+  }
+
+  // ---- the heading histogram: where the fly has pointed, one arc per wedge. Under the neurons,
+  // because it is the fly's memory rather than anything it is doing now.
+  for (let w = 0; w < wedges; w++) {
     // `wedgeAngle`, so each arc sits exactly outside the wedge whose memory it is. This was the
     // third copy of the convention and the one furthest from the other two — it drew the histogram
     // half a wedge out of step with the neurons it brackets.
-    const base = wedgeAngle(w, placed.wedges);
-    const half = Math.PI / placed.wedges;
-    const reach = (26 + (hist[w] / maxHist) * 34) * scale;
+    const base = wedgeAngle(w, wedges);
     ctx.beginPath();
-    ctx.arc(cx, cy, R + reach, base - half * 0.8, base + half * 0.8);
-    ctx.strokeStyle = hist[w] > 0 ? "rgba(194, 65, 12, 0.45)" : muted;
+    ctx.arc(cx, cy, R + reachOf(w), base - half * 0.8, base + half * 0.8);
+    ctx.strokeStyle = hist[w] > 0 ? tint(theme.warm, 0.5) : tint(theme.muted, 0.28);
     ctx.lineWidth = (hist[w] > 0 ? 5 : 2) * scale;
     ctx.stroke();
   }
 
-  // ---- guide rings
-  ctx.strokeStyle = "rgba(0,0,0,0.06)";
+  // ---- the wedge numbers, outside the arcs. The model's own names for the sixteen sectors, which
+  // is what a cue's parameter, the physics above and the timeline are all counting in.
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${12.5 * scale}px ${SANS}`;
+  for (let w = 0; w < wedges; w++) {
+    const base = wedgeAngle(w, wedges);
+    const r = R + 80 * scale;
+    if (w === bump) {
+      // The wedge the fly is pointing at, in the accent the *state* is drawn in rather than in the
+      // instrument colour: this one number is a fact about the fly, not chrome.
+      ctx.fillStyle = theme.warm;
+      ctx.shadowColor = tint(theme.warm, 0.7);
+      ctx.shadowBlur = 10 * scale;
+    } else {
+      ctx.fillStyle = tint(theme.faint, 1);
+    }
+    ctx.fillText(String(w), cx + Math.cos(base) * r, cy + Math.sin(base) * r);
+    ctx.shadowBlur = 0;
+  }
+
+  // ---- guide rings, from the radii the neurons are actually placed at. The list here used to be
+  // four literal radii, one per ring the layout *could* produce; the connectome produces one inner
+  // ring out of its six cell types, so three of those circles outlined empty space.
+  ctx.strokeStyle = tint(theme.accent, 0.1);
   ctx.lineWidth = 1 * scale;
-  for (const r of [R, innerTop, innerTop - innerStep, innerTop - 2 * innerStep]) {
+  for (const ring of new Set([0, ...placed.inner.map((n) => n.ring)])) {
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.arc(cx, cy, ringRadius(ring) * scale, 0, Math.PI * 2);
     ctx.stroke();
   }
 
   // ---- the neurons
   const drawNeuron = ({ index, angle, ring }) => {
     const v = state?.v?.[index] ?? 0;
-    const r = ring === 0 ? R : innerTop - (ring - 1) * innerStep;
+    const r = ringRadius(ring) * scale;
     const x = cx + Math.cos(angle) * r;
     const y = cy + Math.sin(angle) * r;
     const fired = state?.v?.[index] === params.reset;
 
     if (fired) {
       // A halo that fades with the animation, so a spike reads as "just now" rather than
-      // as a permanent property of the neuron.
+      // as a permanent property of the neuron. The glow is what makes a spike visible from across
+      // the page, which is the thing a reader is actually watching for.
       ctx.beginPath();
       ctx.arc(x, y, (9 + 7 * flash) * scale, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(194, 65, 12, ${0.14 + 0.24 * flash})`;
+      ctx.fillStyle = tint(theme.warm, 0.16 + 0.3 * flash);
       ctx.fill();
+      ctx.shadowColor = tint(theme.warm, 0.75);
+      ctx.shadowBlur = (10 + 10 * flash) * scale;
     }
 
     ctx.beginPath();
     ctx.arc(x, y, radiusOf(v), 0, Math.PI * 2);
-    if (v > 0) {
+    // Three states, and the third is the one that was missing. Sampled off the deployed canvas
+    // with the fly quiescent: almost every dot came out the same saturated cool, because "at rest"
+    // is not `v === 0` in this model — the neurons with a negative engram sit on the floor
+    // (`vMin`) most of the time, and colouring the floor as brightly as a driven inhibition leaves
+    // the ring one colour with nothing to notice. So the *near-rest band* is grey: within a tenth
+    // of the floor is "nothing is happening here", which is true, and it leaves the two accents for
+    // the cells that are actually doing something.
+    const floor = Math.max(1, Math.abs(params.vMin ?? 3000));
+    if (Math.abs(v) < floor * 0.1) {
+      ctx.fillStyle = tint(theme.faint, 0.9);
+    } else if (v > 0) {
       const strength = Math.min(1, v / 1200);
-      ctx.fillStyle = `rgba(194, 65, 12, ${0.35 + 0.65 * strength})`;
+      ctx.fillStyle = tint(theme.warm, 0.4 + 0.6 * strength);
     } else {
-      const strength = Math.min(1, -v / 3000);
-      ctx.fillStyle = `rgba(37, 99, 235, ${0.22 + 0.6 * strength})`;
+      const strength = Math.min(1, -v / floor);
+      ctx.fillStyle = tint(theme.cool, 0.3 + 0.6 * strength);
     }
     ctx.fill();
-    ctx.strokeStyle = "rgba(0,0,0,0.18)";
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
     ctx.lineWidth = 0.6 * scale;
     ctx.stroke();
-    void ink;
   };
 
   placed.outer.forEach(drawNeuron);
   placed.inner.forEach(drawNeuron);
 
-  // ---- the heading: the population vector of the compass ring
+  // ---- the heading: the population vector of the compass ring, drawn as an arrow rather than as
+  // a radius, so it reads as a direction. Its tip lands on the wedge the bump is in — the same
+  // `wedgeOf` the fill above used, which is why the fill and the arrow cannot disagree.
   const hx = state?.headX ?? 0;
   const hy = state?.headY ?? 0;
   const magnitude = Math.hypot(hx, hy);
@@ -328,22 +423,56 @@ function drawRing(now) {
     const length = Math.min(1, magnitude / 14000) * R * 0.92;
     // Through `toCanvas`, so the arrow lands on the wedge the bump is actually in.
     const dir = toCanvas(hx / magnitude, hy / magnitude);
+    const tip = { x: cx + dir.x * length, y: cy + dir.y * length };
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + dir.x * length, cy + dir.y * length);
-    ctx.strokeStyle = "#111";
+    ctx.lineTo(tip.x, tip.y);
+    ctx.strokeStyle = theme.ink;
     ctx.lineWidth = 3 * scale;
     ctx.lineCap = "round";
+    ctx.shadowColor = tint(theme.accent, 0.6);
+    ctx.shadowBlur = 8 * scale;
     ctx.stroke();
+
+    const head = 13 * scale;
+    const across = 6.5 * scale;
     ctx.beginPath();
-    ctx.arc(cx + dir.x * length, cy + dir.y * length, 5 * scale, 0, Math.PI * 2);
-    ctx.fillStyle = "#111";
+    ctx.moveTo(tip.x, tip.y);
+    ctx.lineTo(tip.x - dir.x * head + dir.y * across, tip.y - dir.y * head - dir.x * across);
+    ctx.lineTo(tip.x - dir.x * head - dir.y * across, tip.y - dir.y * head + dir.x * across);
+    ctx.closePath();
+    ctx.fillStyle = theme.ink;
     ctx.fill();
+    ctx.shadowBlur = 0;
+  } else {
+    // No arrow is a fact, not a gap: the bump has been collapsed — which is exactly what `shock`
+    // does, and what the fly's own dynamics do when life runs out — or it has never been cued at
+    // all. An arrow that silently vanishes reads as a broken drawing, so the drawing says so.
+    ctx.font = `${12 * scale}px ${SANS}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = tint(theme.warm, 0.85);
+    ctx.fillText(t("ring.noHeading"), cx, cy - 20 * scale);
   }
   ctx.beginPath();
   ctx.arc(cx, cy, 3 * scale, 0, Math.PI * 2);
-  ctx.fillStyle = "#111";
+  ctx.fillStyle = theme.ink;
   ctx.fill();
+
+  // ---- what the middle is. The cells with no wedge are one type and there are 42 of them, and a
+  // ring of forty-two dots in the centre of the picture says nothing at all until it says what it
+  // is. Placed in the gap between the inner ring and the centre, where the only thing that can
+  // reach it is the heading arrow — which is drawn over it when the fly is pointing straight up,
+  // and that is the one case where the label is not what the reader is looking at.
+  if (placed.inner.length > 0) {
+    ctx.font = `${12 * scale}px ${SANS}`;
+    ctx.fillStyle = tint(theme.faint, 1);
+    ctx.fillText(
+      t("ring.innerRing", { n: placed.inner.length }),
+      cx,
+      cy - (RING_INNER - 30) * scale,
+    );
+  }
 }
 
 function drawWalk(now) {
@@ -353,16 +482,28 @@ function drawWalk(now) {
   const { state } = currentFrame(now);
   // Rotated into canvas space *before* the bounds are taken, so the plot is scaled to the path it
   // is about to draw rather than to the path in the other coordinate system.
-  const points = (snap.history ?? [])
-    .map((e) => toCanvas(Number(e.state.posX), Number(e.state.posY)))
-    .concat(state ? [toCanvas(Number(state.posX), Number(state.posY))] : []);
+  const settled = (snap.history ?? []).map((e) =>
+    toCanvas(Number(e.state.posX), Number(e.state.posY)),
+  );
+  // The path is drawn through the interpolated point, but the *bounds* are taken from the chain's
+  // own position — the settled one. Taking them from the animated point re-fit the whole plot on
+  // every frame of a 600 ms transition, so the grid, the path and the dot all slid and rescaled
+  // under the reader's eyes while the fly was doing nothing more than the last transition it was
+  // asked to do. That is what "the picture keeps moving" was. Now the plot re-fits once, when a
+  // transition arrives, and stays still in between.
+  const anchor = snap.current?.state;
+  const framePoint = anchor ? [toCanvas(Number(anchor.posX), Number(anchor.posY))] : [];
+  const bounds = settled.length > 0 ? settled.concat(framePoint) : framePoint;
+  const points = settled.concat(
+    state ? [toCanvas(Number(state.posX), Number(state.posY))] : [],
+  );
 
   if (points.length === 0) {
     return;
   }
 
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
+  const xs = bounds.map((p) => p.x);
+  const ys = bounds.map((p) => p.y);
   const spanX = Math.max(...xs) - Math.min(...xs);
   const spanY = Math.max(...ys) - Math.min(...ys);
   const span = Math.max(spanX, spanY, 256) * 1.3;
@@ -373,7 +514,9 @@ function drawWalk(now) {
     y: size / 2 + ((p.y - midY) / span) * size,
   });
 
-  ctx.strokeStyle = "rgba(0,0,0,0.07)";
+  const theme = colors();
+
+  ctx.strokeStyle = tint(theme.accent, 0.09);
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const at = (i / 4) * size;
@@ -394,7 +537,7 @@ function drawWalk(now) {
       ctx.lineTo(x, y);
     }
   });
-  ctx.strokeStyle = "rgba(37, 99, 235, 0.75)";
+  ctx.strokeStyle = tint(theme.cool, 0.8);
   ctx.lineWidth = 2;
   ctx.stroke();
 
@@ -402,7 +545,7 @@ function drawWalk(now) {
     const { x, y } = toPx(p);
     ctx.beginPath();
     ctx.arc(x, y, 3, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(37, 99, 235, 0.5)";
+    ctx.fillStyle = tint(theme.cool, 0.5);
     ctx.fill();
   });
 
@@ -410,18 +553,112 @@ function drawWalk(now) {
     const { x, y } = toPx({ x: Number(state.posX), y: Number(state.posY) });
     ctx.beginPath();
     ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.fillStyle = "#111";
+    ctx.fillStyle = theme.ink;
+    ctx.shadowColor = tint(theme.cool, 0.8);
+    ctx.shadowBlur = 12;
     ctx.fill();
+    ctx.shadowBlur = 0;
   }
 }
 
-function frame(now) {
-  if (snap?.current) {
-    drawRing(now);
-    drawWalk(now);
+/**
+ * Painting, which happens when something changed and not before.
+ *
+ * This used to be `frame(now) { drawRing(now); drawWalk(now); requestAnimationFrame(frame); }` —
+ * both canvases redrawn *every frame, forever*. Measured on the deployed page with the fly idle:
+ * 848 redraws of each canvas in 8 seconds (≈106/s), and the pixel fingerprint identical from one
+ * second to the next. Two full-canvas clears plus ~155 arcs and dots per frame is work nobody
+ * asked for, on a page whose whole content is a picture of something that is not moving. And
+ * `drawRing` called `getComputedStyle(document.body)` **twice per frame** — a forced style recalc
+ * at 60 Hz — to read a colour it then discarded (`void ink`).
+ *
+ * So a frame is scheduled only when there is something to draw, and the loop keeps itself alive
+ * only while an interpolation is actually in flight: an idle page paints zero times, and a
+ * transition paints for its 600 ms and then stops.
+ *
+ * What counts as "something changed" is deliberately not "the snapshot differs". A poll that
+ * finds nothing new still calls `applySnapshot`, and comparing 1,213 bytes of state to decide
+ * whether to redraw would cost more than the redraw. `invalidate()` is called by the few places
+ * that already know: a new snapshot, a pin, a language switch, a resize.
+ */
+let dirty = true; // something to draw
+let painting = false; // a frame is scheduled or in flight
+let palette = null; // `getComputedStyle` results, read once rather than once per frame
+
+function invalidate() {
+  dirty = true;
+  if (painting) {
+    return;
   }
-  requestAnimationFrame(frame);
+  painting = true;
+  requestAnimationFrame(paint);
 }
+
+function paint(now) {
+  const animating = anim !== null && now - anim.t0 < DURATION;
+  if (dirty || animating) {
+    dirty = false;
+    if (snap?.current) {
+      drawRing(now);
+      drawWalk(now);
+    }
+  }
+  if (animating) {
+    requestAnimationFrame(paint);
+  } else {
+    // The interpolation is over (or was never started). Dropping it here rather than in the
+    // animation is what lets `currentFrame` report the settled state without a second flag.
+    anim = null;
+    painting = false;
+  }
+}
+
+/**
+ * The colours the drawing needs, read out of the stylesheet once.
+ *
+ * Read rather than written here, because the page's palette is the stylesheet's business: the
+ * canvas had `#111`, `rgba(0,0,0,0.06)` and two hardcoded accent colours in it, which is a second
+ * copy of the theme that no CSS change could reach. Read once per theme, not once per frame —
+ * `getComputedStyle` forces a style recalculation, and this used to run at 60 Hz.
+ */
+function colors() {
+  if (!palette) {
+    const styles = getComputedStyle(document.body);
+    const read = (name, fallback) => styles.getPropertyValue(name).trim() || fallback;
+    palette = {
+      ink: read("--ink", "#e7f1f8"),
+      muted: read("--muted", "#93a4b6"),
+      faint: read("--faint", "#5c6c7e"),
+      warm: read("--warm", "#ff7a3d"),
+      cool: read("--cool", "#3fd0ff"),
+      accent: read("--accent", "#6ff3ff"),
+    };
+  }
+  return palette;
+}
+
+/**
+ * A stylesheet colour at an alpha, for the canvas.
+ *
+ * CSS hands back hex (`#ff7a3d`) and a canvas wants `rgba()`. Anything that is not a hex string —
+ * an `rgba()` the stylesheet already wrote that way — is returned untouched rather than mangled.
+ */
+function tint(colour, alpha) {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(colour ?? "");
+  if (!hex) {
+    return colour;
+  }
+  const full =
+    hex[1].length === 3
+      ? hex[1]
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : hex[1];
+  const n = parseInt(full, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
 
 // ------------------------------------------------------------------ panels
 
@@ -429,18 +666,65 @@ function frame(now) {
 // Chinese grouping and separators, which is what the switch is for.
 const fmt = (n) => Number(n).toLocaleString(locale());
 
-function facts(list, target) {
-  target.innerHTML = "";
-  for (const [label, value, className] of list) {
-    const dt = document.createElement("dt");
-    dt.textContent = label;
-    const dd = document.createElement("dd");
-    dd.textContent = value;
-    if (className) {
-      dd.className = className;
-    }
-    target.append(dt, dd);
+/**
+ * Rebuild an element's children only when what they show has changed.
+ *
+ * Every renderer used to start with `innerHTML = ""`, and every poll calls every renderer — so
+ * three times a minute, whether or not anything had happened, the roster, the timeline and the
+ * five Drive cards were replaced by identical copies of themselves. A screenshot cannot tell, and
+ * a reader can, three ways:
+ *
+ *   * **A click that lands on a node the render just replaced does nothing at all.** This is not
+ *     hypothetical: it is why the Drive cards occasionally had to be clicked twice, and why the
+ *     roster row for the fly being watched sometimes ignored a click.
+ *   * A text selection, a `:hover`, or a scroll position inside a list is thrown away.
+ *   * The browser re-lays-out the page for no reason, every poll.
+ *
+ * `signature` is the string the renderer derives everything from. Unchanged means the DOM already
+ * says the right thing, and leaving it alone is both cheaper and more correct than rebuilding it.
+ *
+ * @param {HTMLElement} el
+ * @param {string} signature
+ * @param {() => void} build
+ */
+function rebuild(el, signature, build) {
+  if (el.dataset.sig === signature) {
+    return;
   }
+  el.dataset.sig = signature;
+  el.innerHTML = "";
+  build();
+}
+
+/** `el.innerHTML = html`, unless that is already what it says. Writing it again replaces every
+ * child node with an identical copy, which is a rebuild the reader cannot see and a click cannot
+ * survive. */
+function setHtml(el, html) {
+  if (el.innerHTML !== html) {
+    el.innerHTML = html;
+  }
+}
+
+/** `el.textContent = text`, unless that is already what it says. */
+function setText(el, text) {
+  if (el.textContent !== text) {
+    el.textContent = text;
+  }
+}
+
+function facts(list, target) {
+  rebuild(target, `${locale()}|${JSON.stringify(list)}`, () => {
+    for (const [label, value, className] of list) {
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      if (className) {
+        dd.className = className;
+      }
+      target.append(dt, dd);
+    }
+  });
 }
 
 function renderIdentity() {
@@ -505,10 +789,10 @@ function renderPanels() {
     document.getElementById("backing"),
   );
 
-  document.getElementById("walk-caption").textContent = s
-    ? t("walk.captionAt", { x: s.posX, y: s.posY, n: snap.history.length })
-    : "";
-}
+  setText(
+    document.getElementById("walk-caption"),
+    s ? t("walk.captionAt", { x: s.posX, y: s.posY, n: snap.history.length }) : "",
+  );}
 
 function renderChronicle() {
   const w = snap.chronicle;
@@ -567,15 +851,37 @@ function renderRoster() {
   const count = document.getElementById("roster-count");
   count.textContent =
     roster.length === 1 ? t("world.countOne") : t("world.count", { n: roster.length });
-  list.innerHTML = "";
 
-  roster.forEach((fly, i) => {
-    const c = fly.chronicle;
-    const net = c ? BigInt(c.netCapacity) : null;
-    const netCkb = net === null ? "—" : `${net < 0n ? "−" : "+"}${(Number(net < 0n ? -net : net) / 1e8).toLocaleString(locale(), { maximumFractionDigits: 4 })}`;
-    const li = document.createElement("li");
-    li.setAttribute("aria-current", String(fly.selected));
-    li.innerHTML = `
+  // Everything a row is built from, so a poll that found nothing new leaves the rows — and the
+  // click handlers on them — exactly where they were.
+  const signature = [
+    locale(),
+    roster
+      .map((fly) =>
+        [
+          fly.instance,
+          fly.state.step,
+          fly.state.energy,
+          fly.state.alive,
+          fly.state.generation,
+          fly.state.totalSpikes,
+          fly.chronicle?.sightings ?? "",
+          fly.chronicle?.netCapacity ?? "",
+          fly.selected,
+          fly.owned,
+        ].join(","),
+      )
+      .join(";"),
+  ].join("|");
+
+  rebuild(list, signature, () => {
+    roster.forEach((fly, i) => {
+      const c = fly.chronicle;
+      const net = c ? BigInt(c.netCapacity) : null;
+      const netCkb = net === null ? "—" : `${net < 0n ? "−" : "+"}${(Number(net < 0n ? -net : net) / 1e8).toLocaleString(locale(), { maximumFractionDigits: 4 })}`;
+      const li = document.createElement("li");
+      li.setAttribute("aria-current", String(fly.selected));
+      li.innerHTML = `
       <span class="idx">${i + 1}</span>
       <span class="instance">${fly.instance}</span>
       ${
@@ -598,8 +904,9 @@ function renderRoster() {
       }</span>
       <span class="net ${net === null ? "" : net < 0n ? "negative" : "positive"}">${netCkb} CKB</span>
     `;
-    li.addEventListener("click", () => watch(fly));
-    list.append(li);
+      li.addEventListener("click", () => watch(fly));
+      list.append(li);
+    });
   });
 }
 
@@ -687,14 +994,27 @@ function stimulusName(channel) {
 
 function renderTimeline() {
   const list = document.getElementById("timeline");
-  list.innerHTML = "";
   const all = [...(snap.history ?? []), snap.current].filter(Boolean);
-  all.forEach((entry, i) => {
-    const s = entry.state;
-    const a = describeAction(entry.action);
-    const li = document.createElement("li");
-    li.setAttribute("aria-current", String((pinned?.txHash ?? snap.current?.txHash) === entry.txHash));
-    li.innerHTML = `
+  // `pinned` is in here because `aria-current` follows it: which row is being inspected is part of
+  // what the list says, so pinning has to rebuild it even though no chain data moved.
+  const signature = [
+    locale(),
+    pinned?.txHash ?? "",
+    all
+      .map((e) => [e.txHash, e.state.step, e.state.headX, e.state.headY, e.state.totalSpikes, e.blockNumber ?? ""].join(","))
+      .join(";"),
+  ].join("|");
+
+  rebuild(list, signature, () => {
+    all.forEach((entry, i) => {
+      const s = entry.state;
+      const a = describeAction(entry.action);
+      const li = document.createElement("li");
+      li.setAttribute(
+        "aria-current",
+        String((pinned?.txHash ?? snap.current?.txHash) === entry.txHash),
+      );
+      li.innerHTML = `
       <span class="idx">${i}</span>
       <span class="block">${t("timeline.block", { n: entry.blockNumber ?? "—" })}</span>
       <span class="action">${a.text} <em>${a.detail}</em></span>
@@ -702,8 +1022,9 @@ function renderTimeline() {
       <span class="head">(${s.headX}, ${s.headY})</span>
       <span class="spikes ${s.totalSpikes > 0 ? "fired" : ""}">${t("roster.spikes", { n: s.totalSpikes })}</span>
     `;
-    li.addEventListener("click", () => pin(entry));
-    list.append(li);
+      li.addEventListener("click", () => pin(entry));
+      list.append(li);
+    });
   });
 }
 
@@ -760,6 +1081,9 @@ function renderAll() {
     ? t("ring.headingAtStep", { step: pinned.state.step })
     : t("ring.heading");
   document.getElementById("unpin").hidden = !pinned;
+  // `pin`/`unpin`/a language switch change what the canvases should show, and none of them goes
+  // through `applySnapshot`. Anything that redraws the page redraws the picture too.
+  invalidate();
 }
 
 
@@ -861,68 +1185,74 @@ function renderWallet() {
     settledSigner(connector).then(adopt);
   }
 
-  bar.innerHTML = "";
-  if (connected) {
-    const label = document.createElement("span");
-    label.className = "wallet-account";
-    // Short, but long enough to recognise: the two ends of a bech32 address are what a reader
-    // compares against their wallet.
-    const address = wallet.address();
-    label.textContent = `${wallet.name() ?? t("wallet.wallet")} · ${address.slice(0, 12)}…${address.slice(-6)}`;
-    label.title = address;
-    const button = document.createElement("button");
-    button.className = "ghost";
-    button.textContent = t("wallet.disconnect");
-    button.addEventListener("click", async () => {
-      // Both halves, and in this order. The connector holds its own copy of the connection and
-      // writes it to `localStorage`, so disconnecting only here would leave the modal offering a
-      // connected wallet and the next page load reconnecting it. Closing the modal is *our* doing
-      // here, so the watch is told not to read it as a choice — see `connector.source.js`.
-      if (connector) {
-        connectorWatch.muteNextClose();
-        connector.disconnect();
+  // The connect control is the one element on this page a reader is certainly going to click, and
+  // it used to be replaced by an identical copy on every poll — a handler that dies between the
+  // reader's pointer-down and pointer-up is a click that does nothing, on the button whose whole
+  // job is to be clicked. Rebuilt only when what it says changes.
+  rebuild(
+    bar,
+    [locale(), connected ? `${wallet.name() ?? ""}|${wallet.address()}` : ""].join("|"),
+    () => {
+      if (connected) {
+        const label = document.createElement("span");
+        label.className = "wallet-account";
+        // Short, but long enough to recognise: the two ends of a bech32 address are what a reader
+        // compares against their wallet.
+        const address = wallet.address();
+        label.textContent = `${wallet.name() ?? t("wallet.wallet")} · ${address.slice(0, 12)}…${address.slice(-6)}`;
+        label.title = address;
+        const button = document.createElement("button");
+        button.className = "ghost";
+        button.textContent = t("wallet.disconnect");
+        button.addEventListener("click", async () => {
+          // Both halves, and in this order. The connector holds its own copy of the connection and
+          // writes it to `localStorage`, so disconnecting only here would leave the modal offering
+          // a connected wallet and the next page load reconnecting it. Closing the modal is *our*
+          // doing here, so the watch is told not to read it as a choice — see
+          // `connector.source.js`.
+          if (connector) {
+            connectorWatch.muteNextClose();
+            connector.disconnect();
+          }
+          await wallet.disconnect();
+        });
+        bar.append(label, button);
+      } else {
+        const button = document.createElement("button");
+        button.className = "primary";
+        button.textContent = t("wallet.connectOpen");
+        button.addEventListener("click", () => {
+          if (connector) {
+            openConnector(connector);
+          }
+        });
+        bar.append(button);
       }
-      await wallet.disconnect();
-    });
-    bar.append(label, button);
-  } else {
-    const button = document.createElement("button");
-    button.className = "primary";
-    button.textContent = t("wallet.connectOpen");
-    button.addEventListener("click", () => {
-      if (connector) {
-        openConnector(connector);
-      }
-    });
-    bar.append(button);
-  }
+    },
+  );
 
-  facts.innerHTML = "";
-  const fact = (term, value) => {
+  // One row, and it is the one a reader cannot get anywhere else: the full address.
+  //
+  // Two rows were removed from this list, and both because they were already said somewhere
+  // better. The *wallet* is the label on the connect control in the masthead — `UTXO Global ·
+  // ckt1qz…cvp6q4` — so "signs with" here was the same fact twice. The *balance* the reader
+  // reported seeing as an empty row: this panel rebuilt itself on every poll, and the balance
+  // arrived from a promise afterwards, so a row that landed in the wrong moment was wiped by the
+  // next render. That is now impossible to get wrong by leaving the row out, which is what a page
+  // that never needed it should have done. A wallet with nothing to pay a fee with still finds
+  // out — from the click's own refusal, which is the moment the fee matters and the only moment
+  // the page can be sure it is still true.
+  //
+  // The address is 63 characters of monospace and the reason this panel needed a layout fix; see
+  // `.facts` in style.css.
+  const address = wallet?.address() ?? null;
+  rebuild(facts, [locale(), address ?? ""].join("|"), () => {
     const dt = document.createElement("dt");
-    dt.textContent = term;
+    dt.textContent = t("wallet.address");
     const dd = document.createElement("dd");
-    dd.textContent = value;
+    dd.textContent = address ?? t("wallet.none");
     facts.append(dt, dd);
-  };
-  if (wallet?.address()) {
-    fact(t("wallet.address"), wallet.address());
-    fact(t("wallet.signsWith"), wallet.name() ?? t("wallet.wallet"));
-  } else {
-    fact(t("wallet.address"), t("wallet.none"));
-  }
-  if (wallet?.current()) {
-    wallet
-      .current()
-      .getBalance()
-      .then((balance) => {
-        // A wallet with no coins cannot pay a fee, and the failure otherwise arrives as an
-        // error about capacity in the middle of a signature prompt.
-        const ckb = (Number(balance) / 1e8).toLocaleString(locale(), { maximumFractionDigits: 4 });
-        fact(t("wallet.balance"), `${ckb} CKB`);
-      })
-      .catch(() => {});
-  }
+  });
 
   // Two states, not three: the connector decides what is offerable now, so this page no longer
   // has an opinion about which wallets exist in this browser.
@@ -931,9 +1261,8 @@ function renderWallet() {
   // page — and neither interpolates anything, which is the condition for this being safe. The
   // drive panel's `drive.disabled` is the counter-example: it interpolates the reason produced by
   // `driveAuthorization`, and goes in as text.
-  note.innerHTML = connected ? t("wallet.noteConnected") : t("wallet.noteOffered");
+  setHtml(note, connected ? t("wallet.noteConnected") : t("wallet.noteOffered"));
 }
-
 /**
  * The fee rate the reader chose in CCC's own modal, or `undefined` for the page's own number.
  *
@@ -976,15 +1305,15 @@ function renderDrive() {
   const byWallet = !!wallet?.current();
   const mayDrive = byWallet && snap.meta.drivable;
   const enabled = mayDrive && !pinned;
-  target.innerHTML = "";
 
   // The state the buttons would act on, which is the displayed one rather than the live one —
   // pinning a past step disables them precisely because acting there is not what the reader is
   // looking at. The life readout follows the same rule, so the number above the buttons is always
   // the number a click would spend from.
   const s = displayedEntry()?.state ?? null;
+  const alive = s?.alive !== false;
   if (life) {
-    life.textContent = s ? t("drive.lifeLeft", { n: fmt(s.energy) }) : "";
+    setText(life, s ? t("drive.lifeLeft", { n: fmt(s.energy) }) : "");
   }
 
   // What a step of life is worth, read from the same economics the Backing panel prints rather
@@ -998,82 +1327,136 @@ function renderDrive() {
   // fly's life they spend; `cue` and `shock` are the same shape of transaction and completely
   // different experiments. The sub-line is where that difference lives, and it is why these are
   // laid out as cards with room for a second line instead of as a row of buttons.
+  //
+  // Every action the contract accepts is reachable from here: the four kinds (`tick`, `stimulate`,
+  // `feed`, `resurrect`) and all four stimulus channels. `resurrect` was CLI-only until now, which
+  // made death a one-way door on the page: a reader could watch a fly die and had no way to bring
+  // it back, while the chain would have accepted it. `turn left` and `turn right` were missing for
+  // a smaller reason — they were not in the first five — and they are the two actions that show
+  // the ring doing its actual job, because they move the bump the way a real turning fly does.
+  //
+  // `when` is the contract's own rule, not a preference: a dead fly refuses everything except
+  // `resurrect` (`ApplyError::Dead`), and a live one refuses `resurrect` (`NotDead`). Encoding that
+  // in the card means the button a reader cannot use is the button that looks unusable, rather than
+  // a button that builds a transaction the type script then rejects.
   const actions = [
     {
       label: t("drive.tick", { n: 64 }),
       sub: t("drive.subTick", { n: fmt(64) }),
       spec: { kind: "tick", steps: 64 },
+      when: "alive",
     },
     {
       label: t("drive.tick", { n: 32 }),
       sub: t("drive.subTick", { n: fmt(32) }),
       spec: { kind: "tick", steps: 32 },
+      when: "alive",
     },
     {
       label: t("drive.feed", { n: fmt(10000) }),
       sub: t("drive.subFeed", { n: fmt(10000), ckb: inCkb(10000) }),
       spec: { kind: "feed", steps: 10000 },
+      when: "alive",
     },
     {
       label: t("drive.cue", { wedge: 4 }),
-      sub: t("drive.subCue", { n: fmt(32) }),
+      // 544, not 32: the stimulus itself costs `strength × 128` steps on top of the steps it
+      // simulates, which is the number the preview-testnet run measured. The card used to say 32,
+      // which understated the price of the one action that is most interesting to click.
+      sub: t("drive.subCue", { n: fmt(544) }),
       spec: { kind: "stimulate", channel: 1, param: 4, strength: 4, steps: 32 },
+      when: "alive",
+    },
+    {
+      label: t("drive.turnLeft"),
+      sub: t("drive.subTurn", { n: fmt(544) }),
+      spec: { kind: "stimulate", channel: 2, param: 0, strength: 4, steps: 32 },
+      when: "alive",
+    },
+    {
+      label: t("drive.turnRight"),
+      sub: t("drive.subTurn", { n: fmt(544) }),
+      spec: { kind: "stimulate", channel: 3, param: 0, strength: 4, steps: 32 },
+      when: "alive",
     },
     {
       label: t("drive.shock"),
-      sub: t("drive.subShock", { n: fmt(32) }),
+      sub: t("drive.subShock", { n: fmt(544) }),
       spec: { kind: "stimulate", channel: 4, param: 0, strength: 4, steps: 32 },
+      when: "alive",
+    },
+    {
+      label: t("drive.resurrect"),
+      sub: t("drive.subResurrect", { n: fmt(10000) }),
+      // A function, because `born_block` cannot be known until the click: it is a fact about the
+      // chain at that moment, and the contract refuses a value earlier than the previous life's.
+      // The block of the transition on screen is exactly that — the chain's position as of the
+      // state this button acts on — and it needs no query, because the walk already read it.
+      spec: () => ({
+        kind: "resurrect",
+        steps: 10000,
+        bornBlock: snap.current?.blockNumber ?? 0,
+      }),
+      when: "dead",
     },
   ];
 
-  for (const { label, sub, spec } of actions) {
-    const button = document.createElement("button");
-    button.className = "action";
-    // Two spans rather than a `textContent` with a newline in it: the label and the cost have
-    // different sizes and different colours, and a button is a flex/grid box only if it has
-    // elements to lay out.
-    const name = document.createElement("span");
-    name.className = "action-label";
-    name.textContent = label;
-    const cost = document.createElement("span");
-    cost.className = "action-sub";
-    cost.textContent = sub;
-    button.append(name, cost);
-    button.disabled = !enabled;
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      // Which of the five is in flight. There is only one path now, and it waits for the node to
-      // *accept*, not to commit — the commit is the next poll's business, not the click's. During
-      // that time all five buttons are grey and identical. The one that is running says so.
-      button.setAttribute("aria-busy", "true");
-      try {
-        // One path. The wallet signs and broadcasts, and the node answers as soon as it
-        // accepts the transaction — so a click reports its own outcome in a second or two
-        // rather than waiting for a commit. What the fly *becomes* is the prediction the page
-        // computed, which is the same prediction the validator will recompute; the numbers
-        // therefore arrive a moment before the chain agrees with them, and the next poll
-        // replaces them with the chain's own.
-        setAction(t("drive.asking", { kind: actionName(spec.kind) }), "busy");
-        const result = await wallet.drive(spec, { feeRate: connectorFeeRate(), prepare });
-        setAction(t("drive.sent", { tx: result.txHash }), "ok");
-        await loadSnapshot();
-      } catch (err) {
-        // The click's own failure, said where the click was. It does not go to the footer: that
-        // line answers "is the page connected", and a wallet the reader cancelled in a popup is
-        // not an answer to that question.
-        setAction(err.message, "bad");
-      } finally {
-        button.removeAttribute("aria-busy");
-        // Recomputed, not reused. `mayDrive` was captured when this button was built, and the
-        // reader can pin a past state while the transaction is in flight — which makes the
-        // buttons ineligible for a second reason that this render never knew about. Reusing the
-        // render-time answer would re-enable a button that `renderDrive` would have left
-        // disabled, and the next click would act on a state the reader had navigated away from.
-        button.disabled = !(wallet?.current() && snap.meta.drivable) || pinned !== null;
-      }
-    });
-    target.append(button);
-  }
+  // Nothing in a card depends on the fly's state except which of them the contract will accept, so
+  // a poll that found no transition leaves the buttons, and their click handlers, untouched.
+  rebuild(target, [locale(), enabled, alive, String(perStep)].join("|"), () => {
+    for (const { label, sub, spec, when } of actions) {
+      const usable = enabled && (when === "alive" ? alive : !alive);
+      const button = document.createElement("button");
+      button.className = "action";
+      // Two spans rather than a `textContent` with a newline in it: the label and the cost have
+      // different sizes and different colours, and a button is a flex/grid box only if it has
+      // elements to lay out.
+      const name = document.createElement("span");
+      name.className = "action-label";
+      name.textContent = label;
+      const cost = document.createElement("span");
+      cost.className = "action-sub";
+      cost.textContent = sub;
+      button.append(name, cost);
+      button.disabled = !usable;
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        // Which of them is in flight. There is only one path now, and it waits for the node to
+        // *accept*, not to commit — the commit is the next poll's business, not the click's. During
+        // that time all of them are grey and identical. The one that is running says so.
+        button.setAttribute("aria-busy", "true");
+        try {
+          // Resolved here rather than at build time: `resurrect` needs the block the chain is at,
+          // which is only true at the moment of the click.
+          const resolved = typeof spec === "function" ? spec() : spec;
+          // One path. The wallet signs and broadcasts, and the node answers as soon as it
+          // accepts the transaction — so a click reports its own outcome in a second or two
+          // rather than waiting for a commit. What the fly *becomes* is the prediction the page
+          // computed, which is the same prediction the validator will recompute; the numbers
+          // therefore arrive a moment before the chain agrees with them, and the next poll
+          // replaces them with the chain's own.
+          setAction(t("drive.asking", { kind: actionName(resolved.kind) }), "busy");
+          const result = await wallet.drive(resolved, { feeRate: connectorFeeRate(), prepare });
+          setAction(t("drive.sent", { tx: result.txHash }), "ok");
+          await loadSnapshot();
+        } catch (err) {
+          // The click's own failure, said where the click was. It does not go to the footer: that
+          // line answers "is the page connected", and a wallet the reader cancelled in a popup is
+          // not an answer to that question.
+          setAction(err.message, "bad");
+        } finally {
+          button.removeAttribute("aria-busy");
+          // Recomputed, not reused. `mayDrive` was captured when this button was built, and the
+          // reader can pin a past state while the transaction is in flight — which makes the
+          // buttons ineligible for a second reason that this render never knew about. Reusing the
+          // render-time answer would re-enable a button that `renderDrive` would have left
+          // disabled, and the next click would act on a state the reader had navigated away from.
+          button.disabled = !(wallet?.current() && snap.meta.drivable) || pinned !== null;
+        }
+      });
+      target.append(button);
+    }
+  });
 
   // Two sentences now, not three: there is no server key on this page, so the only honest
   // explanations for these buttons are "your wallet signs" and "connect one". Both carry markup,
@@ -1081,16 +1464,37 @@ function renderDrive() {
   // not: it interpolates a reason that came from the rule the click will be refused by, and a
   // computed string goes in as *text*. The rule is per-key and not per-element, which is why it is
   // written here rather than as a helper that takes whatever it is given.
+  // Two branches write markup and one writes text, and `setHtml`/`setText` compare against what is
+  // already there — so the note needs to know which of the two wrote last. Without that, the text
+  // branch would see identical *text* and skip, leaving the previous branch's `<strong>` in place.
   const lead = (key) => {
-    note.innerHTML = t(key);
+    const html = t(key);
+    if (note.dataset.mode !== "html") {
+      note.dataset.mode = "html";
+      note.innerHTML = html;
+      return;
+    }
+    setHtml(note, html);
+  };
+  const plainly = (text) => {
+    if (note.dataset.mode !== "text") {
+      note.dataset.mode = "text";
+      note.textContent = text;
+      return;
+    }
+    setText(note, text);
   };
 
-  if (mayDrive) {
+  if (!alive) {
+    // Death comes first, because it is the only thing that changes *which* moves exist. A reader
+    // looking at seven grey cards and one live one needs the sentence before the buttons.
+    lead("drive.noteDead");
+  } else if (mayDrive) {
     lead("drive.noteWallet");
   } else if (byWallet) {
     // The reader has a wallet and it is the wrong key for this organism. The sentence comes from
     // the same call the click would be refused by.
-    note.textContent = t("drive.disabled", { reason: snap.meta.undrivableReason });
+    plainly(t("drive.disabled", { reason: snap.meta.undrivableReason }));
   } else {
     // The only reason left on this page, and it is the honest one: nothing here can sign.
     lead("drive.noteConnect");
@@ -1169,7 +1573,16 @@ document.getElementById("unpin").addEventListener("click", () => {
   renderAll();
 });
 
-requestAnimationFrame(frame);
+// The first frame, and the two things that invalidate a picture that is already on screen: the
+// canvases are sized from their layout box, so a resize (or a font that reflows the page) needs a
+// redraw, and `colors()` caches values read out of CSS that a theme change replaces.
+invalidate();
+new ResizeObserver(() => invalidate()).observe(document.getElementById("ring"));
+new ResizeObserver(() => invalidate()).observe(document.getElementById("walk"));
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  palette = null;
+  invalidate();
+});
 
 // The language is applied before the first read, so nothing has to be redrawn to be correct,
 // and the switch is drawn from the language that was just chosen.

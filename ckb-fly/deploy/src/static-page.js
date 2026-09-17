@@ -52,8 +52,14 @@ const TYPES = {
  * `flywasm.wasm` is in the list for the same reason `app.js` is: both come from
  * `make build-front-end`, and a page with only one of them is a page that loads and then does
  * nothing, which is worse than one that refuses to start.
+ *
+ * `pages.js` is the same argument one step further out. It is the bundle for the two prose pages
+ * (`about.html`, `guide.html`), it is not in git either, and without it those two pages render as
+ * a masthead and nothing else — every one of their paragraphs is filled by the dictionary at load
+ * time. A deployment that quietly lost it would still serve the fly, which is exactly why nothing
+ * would notice.
  */
-export const REQUIRED = ["app.js", "flywasm.wasm"];
+export const REQUIRED = ["app.js", "pages.js", "flywasm.wasm"];
 
 /** @param {string} [dir] */
 export function missingArtifacts(dir = PUBLIC_DIR) {

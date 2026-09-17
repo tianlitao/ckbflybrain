@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en" data-page="guide">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CKB Fly — how to read the page</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body class="prose-page">
+    <header class="masthead">
+      <div>
+        <h1 data-i18n="app.name">CKB Fly</h1>
+        <p class="standfirst" data-i18n-html="guide.lead">
+          <strong>Everything on the page comes from the chain.</strong>
+        </p>
+      </div>
+      <div class="masthead-side">
+        <div class="masthead-tools">
+          <nav class="page-nav">
+            <a href="./index.html" data-i18n="nav.home">the fly</a>
+            <a href="./about.html" data-i18n="nav.about">what this is</a>
+            <a href="./guide.html" aria-current="page" data-i18n="nav.guide">how to read it</a>
+          </nav>
+          <div class="lang-switch" id="lang-switch"></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="prose">
+      <h2 data-i18n="guide.ring.heading">The ring</h2>
+      <ul class="explain">
+        <li data-i18n-html="guide.ring.one"></li>
+        <li data-i18n-html="guide.ring.two"></li>
+        <li data-i18n-html="guide.ring.three"></li>
+        <li data-i18n-html="guide.ring.four"></li>
+        <li data-i18n-html="guide.ring.five"></li>
+        <li data-i18n-html="guide.ring.six"></li>
+      </ul>
+
+      <h2 data-i18n="guide.state.heading">The numbers in the panels</h2>
+      <table class="facts-table">
+        <tbody data-i18n-html="guide.state.rows"></tbody>
+      </table>
+
+      <h2 data-i18n="guide.moves.heading">What each button does</h2>
+      <table class="facts-table">
+        <tbody data-i18n-html="guide.moves.rows"></tbody>
+      </table>
+
+      <h2 data-i18n="guide.money.heading">Where the money goes</h2>
+      <p class="multiline" data-i18n="guide.money.body"></p>
+
+      <h2 data-i18n="guide.locks.heading">Public flies and private ones</h2>
+      <p class="multiline" data-i18n-html="guide.locks.body"></p>
+
+      <h2 data-i18n="guide.trust.heading">Why you do not have to trust the page</h2>
+      <p data-i18n-html="guide.trust.body"></p>
+    </main>
+
+    <footer>
+      <span data-i18n-html="guide.back"></span>
+    </footer>
+
+    <script type="module" src="./pages.js"></script>
+  </body>
+</html>

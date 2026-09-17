@@ -93,55 +93,78 @@ describe("the two languages", () => {
     // file — the dictionaries still have the same keys, the same placeholders and no empty values —
     // and it is invisible to a reader too, who only ever reads one of the two languages. Three keys
     // were in exactly that state when this was written.
-    const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
-    const declared = new Set([
-      ...[...html.matchAll(/data-i18n-html="([^"]+)"/g)].map((m) => m[1]),
-      // Rendered by a renderer rather than by the DOM filler, because the choice depends on state:
-      // `wallet.noteConnected` / `wallet.noteOffered` in `renderWallet`, and the two `drive.note*`
-      // through `renderDrive`'s `lead()` helper. They have to be listed because a key that appears
-      // only in JavaScript cannot be found by scanning the markup — and if one is added and left
-      // off this list, the last assertion below fails rather than the key going quietly unchecked.
-      // A key *deleted* from the dictionaries would be caught here too, as "does not exist".
+    // Every page is scanned, not just the fly's: `about.html` and `guide.html` are prose and almost
+    // all of their text is declared markup, so a key that only they use would otherwise be checked
+    // by nothing at all — and those two pages would be the ones that rot.
+    const declared = new Set();
+    for (const file of ["index.html", "about.html", "guide.html"]) {
+      const html = readFileSync(new URL(`../public/${file}`, import.meta.url), "utf8");
+      for (const m of html.matchAll(/data-i18n-html="([^"]+)"/g)) declared.add(m[1]);
+    }
+    // Rendered by a renderer rather than by the DOM filler, because the choice depends on state:
+    // `wallet.noteConnected` / `wallet.noteOffered` in `renderWallet`, and the three `drive.note*`
+    // through `renderDrive`'s `lead()` helper. They have to be listed because a key that appears
+    // only in JavaScript cannot be found by scanning the markup — and if one is added and left
+    // off this list, the assertion below fails rather than the key going quietly unchecked.
+    // A key *deleted* from the dictionaries would be caught here too, as "does not exist".
+    for (const key of [
       "wallet.noteConnected",
       "wallet.noteOffered",
       "drive.noteWallet",
       "drive.noteConnect",
-    ]);
+      "drive.noteDead",
+    ]) {
+      declared.add(key);
+    }
 
     const codeSpans = (text) => [...text.matchAll(/<code>(.*?)<\/code>/g)].map((m) => m[1]);
     const complaints = [];
     for (const key of declared) {
-      for (const [name, dict] of [
-        ["en", EN],
-        ["zh", ZH],
+      const [en, zh] = [EN[key], ZH[key]];
+      if (en === undefined || zh === undefined) {
+        complaints.push(`${en === undefined ? "en" : "zh"}:${key} does not exist`);
+        continue;
+      }
+      for (const [name, value] of [
+        ["en", en],
+        ["zh", zh],
       ]) {
-        const value = dict[key];
-        if (value === undefined) {
-          complaints.push(`${name}:${key} does not exist`);
-          continue;
+        // Markup, or the element it fills shows the tags.
+        if (!/<[a-z/]/.test(value)) {
+          complaints.push(`${name}:${key} is declared as HTML and carries no markup`);
         }
-        // A lead is the sentence that opens the paragraph, so it has to open the string.
-        if (!value.startsWith("<strong>")) {
-          complaints.push(`${name}:${key} does not open with a bold lead`);
+        const [opens, closes] = [
+          (value.match(/<strong>/g) ?? []).length,
+          (value.match(/<\/strong>/g) ?? []).length,
+        ];
+        if (opens !== closes) {
+          complaints.push(`${name}:${key} opens ${opens} <strong> and closes ${closes}`);
         }
-        if (!value.includes("</strong>")) {
-          complaints.push(`${name}:${key} opens a <strong> and never closes it`);
-        }
+      }
+      // **A lead is a lead in both languages.** If one opens the string with `<strong>` and the
+      // other does not, the page has a bold opening sentence in English and none in Chinese — which
+      // is invisible to anyone who reads one language, and to every other test in this file, because
+      // the dictionaries still have the same keys, the same placeholders and no empty values. It
+      // happened three times before this was written, which is why it is the one shape check that
+      // survived the prose pages: those paragraphs carry `<strong>` in the middle instead, and that
+      // is their business.
+      if (en.startsWith("<strong>") !== zh.startsWith("<strong>")) {
+        complaints.push(
+          `${key}: a bold lead in ${en.startsWith("<strong>") ? "English" : "Chinese"} only`,
+        );
       }
       // The `<code>` spans are compared because they hold the technical nouns, which this project
-      // does not translate — `flyworld` is `flyworld` in both. The `<strong>` lead is compared
-      // above. `<em>` deliberately is not: it marks emphasis on a word, and where English stresses
-      // one the Chinese may carry the stress lexically instead — `backing.caption` says
-      // "its capacity <em>is</em> its body" and 「它的容量就是它的身体」. Demanding tag parity
-      // there would force the translator to add an emphasis the sentence does not need.
-      if (EN[key] !== undefined && ZH[key] !== undefined) {
-        const [enCode, zhCode] = [codeSpans(EN[key]), codeSpans(ZH[key])];
-        if (enCode.join() !== zhCode.join()) {
-          complaints.push(`${key}: en marks [${enCode}] as code and zh marks [${zhCode}]`);
-        }
+      // does not translate — `flyworld` is `flyworld` in both. `<em>` deliberately is not: it marks
+      // emphasis on a word, and where English stresses one the Chinese may carry the stress lexically
+      // instead — `backing.caption` says "its capacity <em>is</em> its body" and 「它的容量就是它的身体」.
+      // Demanding tag parity there would force the translator to add an emphasis the sentence does not
+      // need.
+      const [enCode, zhCode] = [codeSpans(en), codeSpans(zh)];
+      if (enCode.join() !== zhCode.join()) {
+        complaints.push(`${key}: en marks [${enCode}] as code and zh marks [${zhCode}]`);
       }
     }
-    assert.deepEqual(complaints, [], "a declared lead is missing or malformed in one language");
+    assert.deepEqual(complaints, [], "a declared element is missing or malformed in one language");
 
     // The other direction, and what makes the list above self-enforcing: markup in a key that
     // nothing declares as HTML renders as literal angle brackets on the page, because those

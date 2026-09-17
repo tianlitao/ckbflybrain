@@ -55,8 +55,9 @@ export function applyLanguage() {
   }
   for (const el of document.querySelectorAll("[data-i18n-html]")) {
     // The dictionary is a local literal, not user input — the `<strong>`, `<em>` and `<code>` tags
-    // in a handful of captions are the only markup any of these strings contains. Anything that
-    // ever interpolates into one of these keys would have to be escaped first; nothing does.
+    // in the captions and the two prose pages are the only markup any of these strings contains.
+    // Anything that ever interpolates into one of these keys would have to be escaped first;
+    // nothing does.
     el.innerHTML = t(el.dataset.i18nHtml);
   }
 }

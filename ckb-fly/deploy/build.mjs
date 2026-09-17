@@ -1,31 +1,40 @@
 /**
- * Build the browser entry point.
+ * Build the browser entry points.
  *
  * `public/app.source.js` stays readable and is the file to edit. `public/app.js` is the browser
- * artifact served by `serve.js`. Keeping those roles separate is deliberate: the page currently
- * has no third-party imports, but a wallet adapter will have bare package imports and the browser
- * cannot resolve those from `node_modules` by itself. The bundle is the seam that lets a future
- * `getUtxoGlobalSigners(client)` or `getJoyIdSigners(client, name, icon)` be imported without a
+ * artifact served by a static host. Keeping those roles separate is deliberate: the page has bare
+ * package imports (`@ckb-ccc/core` and the six wallet adapters) that a browser cannot resolve from
+ * `node_modules` by itself, and the bundle is the seam that lets them be imported without a
  * hand-maintained import map.
  *
- * No wallet is included by this build. The bundle is infrastructure, not a wallet decision.
+ * Two entries, because they are two sizes of job. `app.js` carries CCC and every wallet adapter —
+ * 2.9 MB — because the page can drive the fly and therefore has to build, sign and send
+ * transactions. `pages.js` is the dictionary and the language switch for the two prose pages, a
+ * few tens of kilobytes, because a page that explains a ring attractor needs neither a wallet nor
+ * a chain client.
  */
 import { build } from "esbuild";
 
-const result = await build({
-  entryPoints: ["public/app.source.js"],
-  outfile: "public/app.js",
-  bundle: true,
-  format: "esm",
-  platform: "browser",
-  target: "es2022",
-  sourcemap: false,
-  minify: false,
-  legalComments: "none",
-  logLevel: "info",
-  metafile: true,
-});
+const entries = [
+  { entryPoints: ["public/app.source.js"], outfile: "public/app.js" },
+  { entryPoints: ["public/pages.source.js"], outfile: "public/pages.js" },
+];
 
-const inputs = Object.keys(result.metafile.inputs);
-const output = result.metafile.outputs["public/app.js"];
-console.log(`bundled ${inputs.join(", ")} -> public/app.js (${output.bytes} bytes)`);
+for (const { entryPoints, outfile } of entries) {
+  const result = await build({
+    entryPoints,
+    outfile,
+    bundle: true,
+    format: "esm",
+    platform: "browser",
+    target: "es2022",
+    sourcemap: false,
+    minify: false,
+    legalComments: "none",
+    logLevel: "warning",
+    metafile: true,
+  });
+  const inputs = Object.keys(result.metafile.inputs);
+  const output = result.metafile.outputs[outfile];
+  console.log(`bundled ${inputs.length} inputs -> ${outfile} (${output.bytes} bytes)`);
+}

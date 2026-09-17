@@ -1,18 +1,30 @@
-/* Light theme, matching the tool this is developed in: light surfaces, dark ink, and two
-   accents that carry meaning rather than decoration. Warm means depolarised or fired;
-   cool means hyperpolarised or inhibited. Nothing else is coloured. */
+/* Dark instrument theme: this is a page about a machine that runs in a cell, and it reads like a
+   readout rather than a document. Two accents carry meaning rather than decoration — warm means
+   depolarised or just fired, cool means hyperpolarised or inhibited — and cyan is the instrument
+   colour: hairlines, headings, the things that are chrome. Nothing else is coloured.
+
+   The light palette this replaced was honest and plain, and the reader it was built for said so:
+   a wall of white panels is a document, and the ring in the middle of it looked like a diagram
+   rather than an instrument. The variables below keep their names, so every rule written against
+   them follows the theme; the section at the foot of this file re-dresses the components whose
+   colours were written out by hand. */
 
 :root {
-  --bg: #f6f6f4;
-  --panel: #ffffff;
-  --ink: #1b1b1a;
-  --muted: #6d6d68;
-  --faint: #9a9a93;
-  --line: #e3e3de;
-  --warm: #c2410c;
-  --cool: #2563eb;
-  --good: #15803d;
-  --bad: #b91c1c;
+  --bg: #05070b;
+  --panel: rgba(13, 19, 28, 0.86);
+  --panel-2: rgba(19, 28, 41, 0.72);
+  --ink: #e7f1f8;
+  --muted: #93a4b6;
+  --faint: #5c6c7e;
+  --line: rgba(124, 200, 255, 0.16);
+  --line-2: rgba(124, 200, 255, 0.34);
+  --accent: #6ff3ff;
+  --accent-dim: rgba(111, 243, 255, 0.12);
+  --glow: 0 0 10px rgba(111, 243, 255, 0.22);
+  --warm: #ff7a3d;
+  --cool: #3fd0ff;
+  --good: #46e0a0;
+  --bad: #ff6b6b;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -293,9 +305,31 @@ main {
 
 /* ------------------------------------------------------------------ facts */
 
+/*
+ * The label column keeps its width; the value column may shrink and wrap.
+ *
+ * Both halves of that are load-bearing, and the version this replaces had neither. It was
+ * `grid-template-columns: 1fr auto`, and `auto` means "as wide as the content wants", so a single
+ * value that cannot be broken — a bech32 address, a 64-character type hash — set that column to
+ * its own width. An address is 63 characters of monospace, far wider than the panel, and a grid
+ * cannot give back width it has already promised: the 1fr label column was left with whatever
+ * remained and collapsed to *one character* — 地/址, 签/名/方/式 — while the address ran off the
+ * side of the panel.
+ *
+ * Measured on the deployed page against the old rule, with a real 63-character address in a
+ * 262px-wide `.facts`: the label column came out **14px** wide (its two characters wrapped onto
+ * three lines), the value column **689px**, and the grid **718px** — 456px wider than the panel
+ * it sits in. The label column was narrower than the value's first two characters.
+ *
+ * `max-content` for the label (two to four characters, it never needs to shrink) and
+ * `minmax(0, 1fr)` for the value (it may shrink and wrap) is the whole fix. `overflow-wrap:
+ * anywhere` is not decoration either: `break-word` lets the value overflow while still *reporting*
+ * its full min-content width to the grid, so the column would stay wide. `anywhere` is the value
+ * that also reduces the min-content contribution, which is what `minmax(0, …)` then gets to use.
+ */
 .facts {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: 4px 16px;
   margin: 0;
   font-size: 13.5px;
@@ -311,6 +345,8 @@ main {
   font-variant-numeric: tabular-nums;
   font-family: var(--mono);
   font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .facts dd.ok {
@@ -747,4 +783,417 @@ ccc-connector {
   /* The connector's own text inherits `color`, and `--btn-color` falls back to it. Set here
      rather than inherited from `body` so the modal cannot be themed by accident. */
   color: var(--ink);
+}
+
+/* ================================================================== instrument theme
+ *
+ * Everything above this line was written for a light page and is kept because the *layout* in it
+ * was measured — column widths, the sticky stage, the measure of a caption. What follows only
+ * re-dresses: surfaces, hairlines, glow, and the components whose colours were written out by
+ * hand rather than read from a variable. Same selectors, later in the file, so they win.
+ */
+
+body {
+  background:
+    radial-gradient(1100px 620px at 10% -12%, rgba(111, 243, 255, 0.075), transparent 62%),
+    radial-gradient(900px 560px at 100% 0%, rgba(255, 122, 61, 0.055), transparent 58%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+/* A faint instrument grid, and a vignette that pulls the eye to the middle of the ring. Both are
+   one fixed layer behind everything: the page has exactly one, so it costs one composited surface
+   rather than one per panel. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(124, 200, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(124, 200, 255, 0.045) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(1200px 800px at 50% 0%, #000 30%, transparent 85%);
+  -webkit-mask-image: radial-gradient(1200px 800px at 50% 0%, #000 30%, transparent 85%);
+}
+
+::selection {
+  background: rgba(111, 243, 255, 0.28);
+}
+
+/* ---- surfaces */
+
+.stage,
+.panel {
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.03) inset,
+    0 20px 44px -30px rgba(0, 0, 0, 0.95);
+}
+
+/* The anchor the lit edge below is positioned against. `position: relative` is set on `.panel`
+   only, and that is not a stylistic choice: the stage *is* `position: sticky`, and writing
+   `position: relative` on the pair above silently replaced it — the ring stopped following the
+   reader down the page, which is the one thing the sticky rule exists for. `test/panel-live.test.js`
+   caught it: "the ring spans -1255–-535 in a 900px window". A sticky element is already a
+   positioned ancestor, so the stage needs nothing here. */
+.panel {
+  position: relative;
+}
+
+/* The lit edge along the top of every card: the one piece of chrome that makes a panel read as a
+   panel rather than as a rounded box. `pointer-events: none` so it never eats a click on the
+   heading underneath it. */
+.stage::before,
+.panel::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 14px;
+  right: 14px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--line-2) 22%, var(--accent) 50%, var(--line-2) 78%, transparent);
+  opacity: 0.55;
+}
+
+/* ---- type */
+
+h1 {
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 22px rgba(111, 243, 255, 0.18);
+}
+
+h2 {
+  color: #7fd9ea;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+h2::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  box-shadow: var(--glow);
+  transform: rotate(45deg);
+}
+
+.standfirst strong,
+.caption strong {
+  color: #dff3fb;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-color: rgba(111, 243, 255, 0.35);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-color: var(--accent);
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  color: #a9e9ff;
+  background: rgba(111, 243, 255, 0.07);
+  border: 1px solid rgba(111, 243, 255, 0.12);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ---- the page nav, which the two prose pages share with the fly */
+
+.page-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.page-nav a {
+  font-size: 12.5px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.page-nav a:hover {
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.page-nav a[aria-current="page"] {
+  color: var(--ink);
+  border-color: var(--line-2);
+  background: var(--accent-dim);
+  box-shadow: var(--glow);
+}
+
+/* ---- controls */
+
+button {
+  background: rgba(19, 28, 41, 0.92);
+  border-color: var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+}
+
+button:hover:not(:disabled) {
+  background: rgba(28, 42, 60, 0.96);
+  border-color: var(--line-2);
+  box-shadow: var(--glow);
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button.primary {
+  border-color: #1fc9e0;
+  background: linear-gradient(180deg, #24d3ea, #0f9fb8);
+  color: #032028;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+button.primary:hover:not(:disabled) {
+  border-color: #6ff3ff;
+  background: linear-gradient(180deg, #46e4f7, #14b0cb);
+  box-shadow: 0 0 16px rgba(111, 243, 255, 0.35);
+}
+
+button.ghost {
+  color: var(--muted);
+}
+
+button.action {
+  background: linear-gradient(180deg, rgba(23, 34, 49, 0.92), rgba(14, 21, 31, 0.92));
+  border-left: 2px solid rgba(124, 200, 255, 0.2);
+}
+
+button.action .action-label {
+  color: var(--ink);
+}
+
+button.action:hover:not(:disabled) {
+  border-left-color: var(--accent);
+}
+
+button.action[aria-busy="true"] {
+  border-color: var(--warm);
+  border-left-color: var(--warm);
+  background: rgba(255, 122, 61, 0.12);
+  box-shadow: 0 0 16px rgba(255, 122, 61, 0.22);
+}
+
+/* ---- the status boxes */
+
+.action-status {
+  background: rgba(19, 28, 41, 0.7);
+  color: var(--muted);
+}
+
+.action-status[data-state="busy"] {
+  border-color: rgba(255, 122, 61, 0.45);
+  background: rgba(255, 122, 61, 0.1);
+  color: #ffb08a;
+}
+
+.action-status[data-state="ok"] {
+  border-color: rgba(70, 224, 160, 0.4);
+  background: rgba(70, 224, 160, 0.09);
+  color: #7ff0c2;
+}
+
+.action-status[data-state="bad"] {
+  border-color: rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.1);
+  color: #ff9d9d;
+}
+
+/* ---- the readouts */
+
+.facts dd {
+  color: #d3e8f4;
+  text-shadow: 0 0 10px rgba(111, 243, 255, 0.12);
+}
+
+.facts dd.ok {
+  color: var(--good);
+}
+
+.facts dd.bad {
+  color: var(--bad);
+}
+
+.facts dd.warm {
+  color: var(--warm);
+}
+
+.identity dd {
+  color: #b9d4e6;
+}
+
+.identity dt,
+.count {
+  color: var(--faint);
+}
+
+.canvas,
+.panel canvas,
+.stage canvas {
+  background: radial-gradient(circle at 50% 45%, rgba(24, 48, 68, 0.5), rgba(5, 8, 12, 0.85) 70%);
+  border-color: var(--line);
+}
+
+/* ---- lists: a readout, not a table */
+
+.roster li,
+.timeline li {
+  border-bottom: 1px solid rgba(124, 200, 255, 0.07);
+  transition: background 120ms ease;
+}
+
+.roster li:hover,
+.timeline li:hover {
+  background: rgba(111, 243, 255, 0.05);
+  cursor: pointer;
+}
+
+.roster li[aria-current="true"],
+.timeline li[aria-current="true"] {
+  background: rgba(111, 243, 255, 0.09);
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+.roster .instance,
+.timeline .head,
+.timeline .step {
+  color: #b9d4e6;
+}
+
+.roster .net.positive {
+  color: var(--good);
+}
+
+.roster .net.negative {
+  color: var(--warm);
+}
+
+.roster .spikes.fired,
+.timeline .spikes.fired {
+  color: var(--warm);
+  text-shadow: 0 0 10px rgba(255, 122, 61, 0.35);
+}
+
+/* ---- the prose pages */
+
+main.prose {
+  display: block;
+  max-width: 74ch;
+  margin: 0 auto;
+}
+
+.prose h2 {
+  margin-top: 34px;
+  font-size: 14px;
+}
+
+.prose h2:first-child {
+  margin-top: 0;
+}
+
+.prose p {
+  margin: 12px 0 0;
+  color: #c8dae7;
+}
+
+/* Paragraphs that carry a blank line in the dictionary rather than being split into two elements:
+   `pre-line` is what turns the dictionary's `\n\n` into a break without a second markup path. */
+.multiline {
+  white-space: pre-line;
+}
+
+.explain {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.explain li {
+  position: relative;
+  padding: 8px 0 8px 22px;
+  color: #c8dae7;
+  border-top: 1px solid rgba(124, 200, 255, 0.07);
+}
+
+.explain li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 15px;
+  width: 5px;
+  height: 5px;
+  background: var(--accent);
+  transform: rotate(45deg);
+  opacity: 0.7;
+}
+
+.facts-table {
+  width: 100%;
+  margin: 12px 0 0;
+  border-collapse: collapse;
+}
+
+.facts-table td {
+  padding: 9px 12px 9px 0;
+  vertical-align: top;
+  border-top: 1px solid rgba(124, 200, 255, 0.07);
+  color: #c8dae7;
+  font-size: 13.5px;
+}
+
+.facts-table td:first-child {
+  width: 30%;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.facts-table tr:hover td {
+  background: rgba(111, 243, 255, 0.04);
+}
+
+footer {
+  color: var(--faint);
+}
+
+/* CCC's modal is its own component and reads these; a translucent surface would let the page
+   through the dialog, so it gets a solid one. */
+ccc-connector {
+  --background: #0b1119;
+  --btn-primary: var(--accent);
+  --btn-primary-hover: #9df7ff;
+  --btn-color: #04222a;
+  --btn-color-hover: #04222a;
+  --btn-secondary: var(--line-2);
+  --btn-secondary-hover: var(--accent-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
 }

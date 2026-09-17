@@ -60,6 +60,26 @@ export function wedgeAngle(w, wedges = WEDGES) {
 }
 
 /**
+ * Which wedge a model vector points at.
+ *
+ * The inverse of [`wedgeDirection`], and it lives here for the reason this module exists: the ring
+ * now draws the wedge the bump is *in* — a filled sector, labelled — and a picture whose label
+ * disagrees with its own highlight is worse than either. Round-tripped against `wedgeDirection` for
+ * every wedge in `test/geometry.test.js`, so the two cannot drift.
+ *
+ * @param {number} x
+ * @param {number} y
+ * @param {number} [wedges]
+ */
+export function wedgeOf(x, y, wedges = WEDGES) {
+  // `wedgeDirection` puts wedge `w` at `(w + ½)` of a wedge, so the inverse subtracts the half
+  // before rounding. `atan2` answers in (-π, π] and the ring's own angles run to 2π, which is why
+  // the result is wrapped rather than merely rounded.
+  const w = Math.round(Math.atan2(y, x) / (TAU / wedges) - 0.5);
+  return ((w % wedges) + wedges) % wedges;
+}
+
+/**
  * A model vector, in canvas coordinates.
  *
  * The inverse of the rotation [`wedgeAngle`] applies, so a vector pointing at a wedge and the

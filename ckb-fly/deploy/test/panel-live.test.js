@@ -283,7 +283,10 @@ describe("the page a reader gets", () => {
       };
     });
 
-    assert.equal(drive.cards.length, 5, "five actions are offered");
+    // Eight, not five: the page offers every action the contract accepts — the four kinds and all
+    // four stimulus channels. `resurrect` used to be CLI-only, which made death a one-way door on
+    // the page, and `turn left` / `turn right` were simply missing.
+    assert.equal(drive.cards.length, 8, "every action the contract accepts is offered");
     for (const card of drive.cards) {
       assert.ok(card.label, `a card with no verb: ${JSON.stringify(card)}`);
       // The sub-line is not decoration. `tick 64` and `tick 32` differ by one digit; what makes
@@ -342,7 +345,16 @@ describe("the page a reader gets", () => {
       [...document.querySelectorAll("#drive button .action-label")].map((e) => e.textContent),
     );
     assert.notDeepEqual(zh, en, "the cards are the same in both languages");
-    assert.deepEqual(en, ["tick 64", "tick 32", "feed 10,000", "cue, wedge 4", "shock"]);
+    assert.deepEqual(en, [
+      "tick 64",
+      "tick 32",
+      "feed 10,000",
+      "cue, wedge 4",
+      "turn left",
+      "turn right",
+      "shock",
+      "resurrect",
+    ]);
     await choose(page, "zh");
   });
 

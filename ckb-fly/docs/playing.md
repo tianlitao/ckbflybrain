@@ -39,11 +39,13 @@ Three consequences shape every move you can make:
 
 | | what you need | how you act |
 |---|---|---|
-| **The page** | a browser; a wallet only if you want to pay for the move yourself | five buttons in the Drive panel, in the right-hand column below Walk |
+| **The page** | a browser; a wallet only if you want to pay for the move yourself | the Drive panel, in the right-hand column below Walk: every action the contract accepts, each one a card with its cost under it |
 | **The CLI** | a funded CKB key | `node src/cli.js <command>` from `deploy/` |
 
-The page is the same five moves with a drawing attached. The CLI can do everything the page
-can plus `deploy`, `genesis`, `resurrect` and `adopt`.
+The page is the same moves with a drawing attached, and it now offers all of them — the four
+action kinds and all four stimulus channels, `resurrect` included. The CLI can do everything the
+page can plus `deploy`, `genesis` and `adopt`, which are about making an organism rather than
+moving one.
 
 ```sh
 cd deploy
@@ -57,7 +59,7 @@ page never sees your key.
 
 ---
 
-## The five moves
+## The moves
 
 | move | what it does | what it costs | who ends up with the money |
 |---|---|---|---|
@@ -65,8 +67,9 @@ page never sees your key.
 | `tick 32` | the same, half as far | 32 steps of life | you — 0.0032 CKB |
 | `feed 10,000` | buys 10,000 steps of life | 1 CKB | the fly — the capacity is locked into its body |
 | `cue, wedge 4` | lights a landmark, then runs 32 steps | 32 steps + 512 steps | the fly (life, not capacity) |
+| `turn left` / `turn right` | drives one side's PEN neurons — angular velocity — then runs 32 steps | 32 steps + 512 steps | the fly |
 | `shock` | an aversive pulse, then 32 steps | 32 steps + 512 steps | the fly |
-| `resurrect` *(CLI only)* | starts a new life | the life you buy + the fee | the fly |
+| `resurrect` | starts a new life and increments the generation. Offered only while the fly is dead | the life you buy + the fee | the fly |
 
 ### `tick` — run the simulation
 
