@@ -86,6 +86,85 @@ describe("the two languages", () => {
     );
   });
 
+  it("renders the same bold lead in both languages, and only where the markup says so", () => {
+    // Two files decide this and nothing was making them agree. `index.html` marks the elements it
+    // fills with `innerHTML` (`data-i18n-html`); `i18n.source.js` holds the strings. A key given a
+    // `<strong>` lead in one language and not the other is invisible to every other test in this
+    // file — the dictionaries still have the same keys, the same placeholders and no empty values —
+    // and it is invisible to a reader too, who only ever reads one of the two languages. Three keys
+    // were in exactly that state when this was written.
+    const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+    const declared = new Set([
+      ...[...html.matchAll(/data-i18n-html="([^"]+)"/g)].map((m) => m[1]),
+      // Rendered by a renderer rather than by the DOM filler, because the choice depends on state:
+      // `wallet.noteConnected` / `wallet.noteOffered` in `renderWallet`, and the four `drive.note*`
+      // through `renderDrive`'s `lead()` helper. They have to be listed because a key that appears
+      // only in JavaScript cannot be found by scanning the markup — and if one is added and left
+      // off this list, the last assertion below fails rather than the key going quietly unchecked.
+      "wallet.noteConnected",
+      "wallet.noteOffered",
+      "drive.noteWallet",
+      "drive.notePublic",
+      "drive.notePrivate",
+      "drive.noteNoDrive",
+    ]);
+
+    const codeSpans = (text) => [...text.matchAll(/<code>(.*?)<\/code>/g)].map((m) => m[1]);
+    const complaints = [];
+    for (const key of declared) {
+      for (const [name, dict] of [
+        ["en", EN],
+        ["zh", ZH],
+      ]) {
+        const value = dict[key];
+        if (value === undefined) {
+          complaints.push(`${name}:${key} does not exist`);
+          continue;
+        }
+        // A lead is the sentence that opens the paragraph, so it has to open the string.
+        if (!value.startsWith("<strong>")) {
+          complaints.push(`${name}:${key} does not open with a bold lead`);
+        }
+        if (!value.includes("</strong>")) {
+          complaints.push(`${name}:${key} opens a <strong> and never closes it`);
+        }
+      }
+      // The `<code>` spans are compared because they hold the technical nouns, which this project
+      // does not translate — `flyworld` is `flyworld` in both. The `<strong>` lead is compared
+      // above. `<em>` deliberately is not: it marks emphasis on a word, and where English stresses
+      // one the Chinese may carry the stress lexically instead — `backing.caption` says
+      // "its capacity <em>is</em> its body" and 「它的容量就是它的身体」. Demanding tag parity
+      // there would force the translator to add an emphasis the sentence does not need.
+      if (EN[key] !== undefined && ZH[key] !== undefined) {
+        const [enCode, zhCode] = [codeSpans(EN[key]), codeSpans(ZH[key])];
+        if (enCode.join() !== zhCode.join()) {
+          complaints.push(`${key}: en marks [${enCode}] as code and zh marks [${zhCode}]`);
+        }
+      }
+    }
+    assert.deepEqual(complaints, [], "a declared lead is missing or malformed in one language");
+
+    // The other direction, and what makes the list above self-enforcing: markup in a key that
+    // nothing declares as HTML renders as literal angle brackets on the page, because those
+    // elements are filled with `textContent`. That is not hypothetical — it is how the missing
+    // `data-i18n-html` on two captions was noticed, from a screenshot, with every test green.
+    const undeclared = [];
+    for (const key of Object.keys(EN)) {
+      if (declared.has(key)) continue;
+      for (const [name, dict] of [
+        ["en", EN],
+        ["zh", ZH],
+      ]) {
+        if (/<[a-z/]/.test(dict[key] ?? "")) undeclared.push(`${name}:${key}`);
+      }
+    }
+    assert.deepEqual(undeclared, [], "these carry markup but nothing renders them as HTML");
+
+    // The one key that must never carry any, named so the reason survives: it interpolates a
+    // refusal reason that came from the server, and a server-supplied string goes in as text.
+    assert.ok(!/<[a-z/]/.test(EN["drive.disabled"]), "drive.disabled interpolates a server string");
+  });
+
   it("falls back to English rather than to a hole", () => {
     setLang("zh");
     assert.equal(t("this.key.does.not.exist"), "this.key.does.not.exist");

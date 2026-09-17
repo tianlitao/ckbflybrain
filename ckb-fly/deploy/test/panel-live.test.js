@@ -11,11 +11,13 @@
  *     which no longer exists — so nothing was measuring them, and the numbers in the comment had
  *     quietly stopped being true. This is that script, as a test, in both languages.
  *   * **The ring.** It is `position: sticky` so that a reader who scrolls down to the Drive
- *     buttons can still see the ring those buttons move. Sticky is a layout property with two
- *     silent preconditions — the element must be shorter than its grid area, and shorter than the
- *     window — and if either stops holding, the page still renders and the ring simply scrolls
- *     away. So this asserts the property that matters: with the Drive panel at the foot of the
- *     window, the whole ring is on screen.
+ *     buttons can still see the ring those buttons move. Sticky has silent preconditions — the
+ *     element has to be shorter than the window, and it has to have somewhere to travel — and if
+ *     one stops holding, the page still renders and the ring simply scrolls away. The
+ *     preconditions are also not fully explicable from the CSS: the stylesheet's own explanation
+ *     held in two columns and was simply wrong in one. So this asserts the reader's consequence
+ *     instead, at both widths: with the Drive panel at the foot of the window, the whole ring is
+ *     on screen.
  *   * **The Drive cards.** Each is a verb and what it costs. The sub-line is the part that
  *     distinguishes `tick 64` from `tick 32`, and a sub-line that has wrapped onto a second line
  *     is a card that no longer reads as a pair.
@@ -33,7 +35,17 @@ import { after, before, describe, it } from "node:test";
 import { existsSync } from "node:fs";
 
 const PAGE = process.env.FLY_PANEL_URL ?? "http://127.0.0.1:8898/";
-const VIEWPORT = { width: 1440, height: 900 };
+
+/**
+ * The two widths a reader might actually have. 980px is where the stylesheet collapses to one
+ * column, and the ring has to survive that — it is not a decoration that can be dropped on a
+ * laptop, it is the only feedback a click has. The height is the same for both so that a failure
+ * means the width did it.
+ */
+const VIEWPORTS = [
+  { width: 1440, height: 900 },
+  { width: 900, height: 900 },
+];
 
 /** Playwright lives outside this project, so its absence is a skip rather than a failure. */
 const PLAYWRIGHT = "/Users/mac/node_modules/playwright-core/index.mjs";
@@ -135,7 +147,7 @@ describe("the page a reader gets", () => {
       args: process.env.HTTPS_PROXY ? [`--proxy-server=${process.env.HTTPS_PROXY}`] : [],
       executablePath: chromiumPath(),
     });
-    page = await browser.newPage({ viewport: VIEWPORT });
+    page = await browser.newPage({ viewport: VIEWPORTS[0] });
     // `networkidle` never fires — the page holds an SSE connection open — so wait for something
     // the app renders instead.
     await page.goto(PAGE, { waitUntil: "domcontentloaded", timeout: 45000 });
@@ -178,38 +190,58 @@ describe("the page a reader gets", () => {
 
   it("keeps the whole ring on screen while the Drive buttons are", async (t) => {
     if (why) return t.skip(why);
-    const fits = await page.evaluate(() => {
-      const canvas = document.getElementById("ring").getBoundingClientRect();
-      return { ring: Math.round(canvas.height), window: window.innerHeight };
-    });
-    // The precondition for `position: sticky` doing anything at all: an element taller than the
-    // window has nowhere to stick to, and `top: 16px` on it is a no-op.
-    assert.ok(
-      fits.ring < fits.window,
-      `the ring is ${fits.ring}px tall in a ${fits.window}px window: it cannot stick`,
-    );
+    // Both widths are measured before anything is asserted. The two layouts reach the ring by
+    // different mechanisms — the stylesheet's explanation of one is wrong for the other — so a run
+    // that stops at the first failure would report half the story and hide the half that broke.
+    const complaints = [];
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(300);
+      const where = `${viewport.width}×${viewport.height}`;
 
-    const seen = await page.evaluate(async () => {
-      document.getElementById("drive-panel").scrollIntoView({ block: "end" });
-      await new Promise((r) => setTimeout(r, 400));
-      const ring = document.getElementById("ring").getBoundingClientRect();
-      const drive = document.getElementById("drive-panel").getBoundingClientRect();
-      return {
-        ringTop: Math.round(ring.top),
-        ringBottom: Math.round(ring.bottom),
-        driveTop: Math.round(drive.top),
-        window: window.innerHeight,
-      };
-    });
-    // The assertion is about the reader, not about the CSS: they scrolled to the buttons, and the
-    // thing those buttons change has to still be there.
-    assert.ok(
-      seen.ringTop >= 0 && seen.ringBottom <= seen.window,
-      `with the Drive panel at y=${seen.driveTop}, the ring spans ${seen.ringTop}–${seen.ringBottom} ` +
-        `in a ${seen.window}px window`,
-    );
+      const fits = await page.evaluate(() => {
+        const canvas = document.getElementById("ring").getBoundingClientRect();
+        return { ring: Math.round(canvas.height), window: window.innerHeight };
+      });
+      // The precondition for `position: sticky` doing anything at all: an element taller than the
+      // window has nowhere to stick to, and `top: 16px` on it is a no-op.
+      if (fits.ring >= fits.window) {
+        complaints.push(
+          `at ${where} the ring is ${fits.ring}px tall in a ${fits.window}px window: it cannot stick`,
+        );
+        continue;
+      }
+
+      const seen = await page.evaluate(async () => {
+        window.scrollTo(0, 0);
+        await new Promise((r) => setTimeout(r, 150));
+        document.getElementById("drive-panel").scrollIntoView({ block: "end" });
+        await new Promise((r) => setTimeout(r, 400));
+        const ring = document.getElementById("ring").getBoundingClientRect();
+        const drive = document.getElementById("drive-panel").getBoundingClientRect();
+        return {
+          ringTop: Math.round(ring.top),
+          ringBottom: Math.round(ring.bottom),
+          driveTop: Math.round(drive.top),
+          window: window.innerHeight,
+        };
+      });
+      // The assertion is about the reader, not about the CSS: they scrolled to the buttons, and
+      // the thing those buttons change has to still be there.
+      if (!(seen.ringTop >= 0 && seen.ringBottom <= seen.window)) {
+        complaints.push(
+          `at ${where}, with the Drive panel at y=${seen.driveTop}, the ring spans ` +
+            `${seen.ringTop}–${seen.ringBottom} in a ${seen.window}px window`,
+        );
+      }
+    }
+
+    // Put the page back the way the other tests expect to find it, pass or fail.
+    await page.setViewportSize(VIEWPORTS[0]);
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(200);
+
+    assert.deepEqual(complaints, [], "the ring is not where the reader can watch it");
   });
 
   it("offers every action as a verb with what it costs, and says nothing until asked", async (t) => {
@@ -296,12 +328,46 @@ describe("the page a reader gets", () => {
     await choose(page, "zh");
   });
 
+  it("renders the bold leads as markup, not as tags a reader can see", async (t) => {
+    if (why) return t.skip(why);
+    // The other half of what `i18n.test.js` checks. That one proves the dictionary carries a lead
+    // and that the markup declares which keys are HTML; this proves the page honours the
+    // declaration. Both are needed: the failure this guards against is a string containing
+    // `<strong>` reaching an element filled with `textContent`, which puts the angle brackets on
+    // the screen — and that has happened here, caught from a screenshot with every test green.
+    for (const code of ["zh", "en"]) {
+      await choose(page, code);
+      const found = await page.evaluate(() => {
+        // `[data-i18n-html]` is the DOM filler's half; the two ids are the renderers' half.
+        const els = [
+          ...document.querySelectorAll("[data-i18n-html]"),
+          document.getElementById("wallet-note"),
+          document.getElementById("drive-note"),
+        ].filter(Boolean);
+        return els.map((el) => ({
+          key: el.dataset.i18nHtml ?? el.id,
+          strongs: el.querySelectorAll("strong").length,
+          literal: /<\/?(strong|em|code|b|i)>/.test(el.textContent),
+        }));
+      });
+
+      assert.ok(found.length >= 8, `${code}: only ${found.length} lead-bearing elements found`);
+      const bad = found.filter((f) => f.strongs === 0 || f.literal);
+      assert.deepEqual(
+        bad.map((f) => `${f.key} strong=${f.strongs} literal=${f.literal}`),
+        [],
+        `${code}: these leads did not render as markup`,
+      );
+    }
+    await choose(page, "zh");
+  });
+
   it("logs no errors while all of that happens", async (t) => {
     if (why) return t.skip(why);
     // Collected from the start of the run. A page that renders correctly while throwing in a
     // renderer is a page that will render incorrectly the next time something changes.
     const failures = [];
-    const fresh = await browser.newPage({ viewport: VIEWPORT });
+    const fresh = await browser.newPage({ viewport: VIEWPORTS[0] });
     fresh.on("pageerror", (e) => failures.push(String(e)));
     fresh.on("console", (m) => {
       if (m.type() === "error") failures.push(m.text());

@@ -191,10 +191,17 @@ main {
      reader clicked "tick 64" and the thing they clicked it for was a screen and a half above
      them, so the only evidence anything had happened was a number in a panel.
 
-     Sticky works here because the grid's row is as tall as the *column*, and `align-items: start`
-     on `main` leaves the stage at its content height — so the item has the whole row to travel in.
-     `stretch` would have made the stage fill the row instead, which is the same tall white box
-     with the ring pinned uselessly at the top of it. */
+     Why it works is measured rather than derived, because the derivation is wrong. In the
+     two-column layout the obvious story holds: the grid's row is as tall as the column and
+     `align-items: start` leaves the stage at its content height, so it has the row to travel in.
+     But the single-column layout below 980px puts the stage and the column in **separate rows** —
+     `grid-template-rows` measures `809px 2346px` — and the stage still pins at `top: 16px` for
+     the whole of `main`, 2300px past its own row. So the containing block is larger than the grid
+     area the spec would give it, and the explanation above describes only one of the two cases.
+
+     What is asserted is therefore the reader's consequence at *both* widths, not this mechanism:
+     `test/panel-live.test.js` checks that with the Drive panel at the foot of the window, the
+     whole ring is on screen — at 1440px and at 900px. */
   position: sticky;
   top: 16px;
 }

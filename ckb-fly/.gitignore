@@ -20,8 +20,14 @@ deploy/fly-*.json
 
 # The deployment key. A deployment's code cells are locked by it, so it is a secret in the
 # only sense that matters: whoever has it can spend them.
+#
+# Both patterns, because `deploy/*.key` does not match the per-network names this project
+# actually uses — `deploy/.key.preview` and `deploy/.key.visitor` end in `.preview` and
+# `.visitor`. They are ignored today only by a pattern in the root `.gitignore` written for
+# something else, which is the wrong reason for a secret to be safe.
 deploy/.key
 deploy/*.key
+deploy/.key.*
 
 # A local dev chain: a node's data directory, and the CKB build it was started from.
 # Both are large, both are regenerated, and neither is anyone else's business.

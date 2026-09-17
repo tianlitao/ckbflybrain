@@ -88,11 +88,11 @@ const EN = {
 
   "chronicle.heading": "Chronicle",
   "chronicle.caption":
-    "A second type script, <code>flyworld</code>, keeps this record — and updates it in the same " +
-    "transaction as the transition it describes. It is not told what the fly did: it is required " +
-    "to look at the fly, which must be present, and to record exactly what it finds. Nothing " +
-    "here was supplied by whoever sent the transaction, and the cell's own capacity never " +
-    "changes, so it cannot be used to hide value either.",
+    "<strong>A second type script, <code>flyworld</code>, keeps this record — in the same " +
+    "transaction as the transition it describes.</strong> It is not told what the fly did: it " +
+    "is required to look at the fly, which must be present, and to record exactly what it " +
+    "finds. Nothing here was supplied by whoever sent the transaction, and the cell's own " +
+    "capacity never changes, so it cannot be used to hide value either.",
   "chronicle.record": "record",
   "chronicle.none": "none — this fly was deployed before the chronicle existed",
   "chronicle.life": "life",
@@ -152,9 +152,9 @@ const EN = {
 
   "timeline.heading": "Life so far",
   "timeline.caption":
-    "CKB has no event log. This is not a log — it is the fly's chain of state cells, walked " +
-    "backwards from the current one, with each action read out of the witness the type script " +
-    "validated. Nothing here was emitted, and nothing here can be edited.",
+    "<strong>CKB has no event log, and this is not one.</strong> It is the fly's chain of state " +
+    "cells, walked backwards from the current one, with each action read out of the witness the " +
+    "type script validated. Nothing here was emitted, and nothing here can be edited.",
   "timeline.block": "block {n}",
   "timeline.step": "step {n}",
 
@@ -168,13 +168,14 @@ const EN = {
   "wallet.disconnect": "disconnect",
   "wallet.connected": "connected {address}…",
   "wallet.noteConnected":
-    "Clicks in the Drive panel are signed by this wallet and paid for from its balance. The " +
-    "server builds the transaction — the successor state is the Rust simulation's — but it " +
+    "<strong>Clicks in the Drive panel are signed by this wallet and paid for from its balance.</strong> " +
+    "The server builds the transaction — the successor state is the Rust simulation's — but it " +
     "signs nothing and needs no key of its own.",
   "wallet.noteOffered":
-    "Open the wallet list from the button at the top right. That is CCC's own connector, so it "
-    + "offers every wallet CCC supports — one that is not installed will say so when you pick it. "
-    + "Once connected it pays for and signs a state transition; the server never sees the key.",
+    "<strong>Open the wallet list from the button at the top right.</strong> That is CCC's own " +
+    "connector, so it offers every wallet CCC supports — one that is not installed will say so " +
+    "when you pick it. Once connected it pays for and signs a state transition; the server never " +
+    "sees the key.",
 
   "drive.heading": "Drive",
   "drive.tick": "tick {n}",
@@ -267,7 +268,8 @@ const ZH = {
 
   "backing.heading": "支撑",
   "backing.caption":
-    "这只果蝇没有代币。它的容量就是它的身体加上剩下的寿命，这本账的两边必须相等——type script 会比对。",
+    "<strong>这只果蝇没有代币。</strong>它的容量就是它的身体加上剩下的寿命，这本账的两边必须相等——" +
+    "type script 会比对。",
   "backing.perStep": "每步支撑",
   "backing.shannons": "{n} shannons",
   "backing.body": "身体",
@@ -356,11 +358,12 @@ const ZH = {
   "wallet.disconnect": "断开",
   "wallet.connected": "已连接 {address}…",
   "wallet.noteConnected":
-    "在「驱动」面板里点击，由这个钱包签名、并从它的余额付费。交易由服务器组装——后继状态来自 " +
-    "Rust 模拟——但服务器不签名，也不需要任何自己的钥匙。",
+    "<strong>在「驱动」面板里点击，由这个钱包签名、并从它的余额付费。</strong>交易由服务器组装——" +
+    "后继状态来自 Rust 模拟——但服务器不签名，也不需要任何自己的钥匙。",
   "wallet.noteOffered":
-    "用右上角的按钮打开钱包列表。那是 CCC 自己的连接器，所以列出 CCC 支持的全部钱包——"
-    + "还没装的那个，选中时会告诉你。连上之后它就能为一次状态转换付费并签名；服务器永远看不到私钥。",
+    "<strong>用右上角的按钮打开钱包列表。</strong>那是 CCC 自己的连接器，所以列出 CCC 支持的全部" +
+    "钱包——还没装的那个，选中时会告诉你。连上之后它就能为一次状态转换付费并签名；" +
+    "服务器永远看不到私钥。",
 
   "drive.heading": "驱动",
   "drive.tick": "推进 {n} 步",

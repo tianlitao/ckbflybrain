@@ -872,7 +872,12 @@ function renderWallet() {
 
   // Two states, not three: the connector decides what is offerable now, so this page no longer
   // has an opinion about which wallets exist in this browser.
-  note.textContent = connected ? t("wallet.noteConnected") : t("wallet.noteOffered");
+  //
+  // `innerHTML`, because both sentences open with a bold lead like every other caption on the
+  // page — and neither interpolates anything, which is the condition for this being safe. The
+  // drive panel's `drive.disabled` is the counter-example: it takes a server-supplied reason and
+  // goes in as text.
+  note.innerHTML = connected ? t("wallet.noteConnected") : t("wallet.noteOffered");
 }
 
 /**
