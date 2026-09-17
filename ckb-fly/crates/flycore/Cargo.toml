@@ -1,0 +1,12 @@
+[package]
+name = "flycore"
+description = "Bit-exact port of FlyBrain.sol's spiking LIF simulation (head-direction ring attractor)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+flycircuit = { path = "../flycircuit" }
+
+[dev-dependencies]
+serde_json = "1.0.151"

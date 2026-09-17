@@ -1,0 +1,42 @@
+[package]
+name = "flylock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# Targets are declared explicitly rather than auto-detected so the on-chain binary can be
+# gated behind a feature. `ckb_std::entry!` installs a panic handler only for
+# `target_arch = "riscv64"`, so a host build of this binary cannot link. Gating it keeps
+# `cargo build`, `check`, `clippy` and `test` working at the workspace root.
+autobins = false
+
+[lib]
+name = "flylock"
+path = "src/lib.rs"
+
+[[bin]]
+name = "flylock"
+path = "src/main.rs"
+required-features = ["onchain"]
+
+[dependencies]
+# flylock has no dependencies beyond ckb-std: it is deliberately the smallest possible
+# script, because every line in a lock is a line that could accidentally narrow who is
+# allowed to advance the fly.
+# `default-features = false` drops ckb-std's `libc` feature, which exists only to support
+# `exec_cell`/`dlopen` and whose build script compiles `c/libc.c` with a clang that can
+# target riscv64. Neither contract execs a cell, and Apple's clang cannot target riscv64
+# at all, so leaving the default on would make the on-chain build require a second
+# toolchain for no benefit.
+ckb-std = { version = "1.1", default-features = false, features = [
+  "allocator",
+  "ckb-types",
+  "dummy-atomic",
+] }
+
+[features]
+# Compile `main.rs` as a module of the library, for host-side tests and native simulators.
+library = []
+# Build the on-chain binary. Only meaningful together with
+# `--target riscv64imac-unknown-none-elf`.
+onchain = []
+native-simulator = ["library", "ckb-std/native-simulator"]

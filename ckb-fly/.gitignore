@@ -1,0 +1,30 @@
+# Build output. `build/` holds the stripped RISC-V binaries the integration tests load;
+# `target/` holds the unstripped ones, which are useful when stepping through a contract
+# inside CKB-VM.
+/target
+/build
+
+# ckb-testtool writes rejected transactions here for inspection.
+tests/failed_txs/
+
+# The deployer's dependencies, and the record of what it deployed. `deployment.json` is
+# chain state, not source: it names out points that only exist on one chain, so it belongs
+# to whoever ran the deployment rather than to the repository.
+deploy/node_modules/
+# Deployment records: chain state, not source. The out points in them exist on one chain
+# and nowhere else, so they belong to whoever ran the deployment. `FLY_STATE` can put one
+# anywhere, so the pattern covers the alternatives a second fly would use.
+deploy/deployment.json
+deploy/*-deployment.json
+deploy/fly-*.json
+
+# The deployment key. A deployment's code cells are locked by it, so it is a secret in the
+# only sense that matters: whoever has it can spend them.
+deploy/.key
+deploy/*.key
+
+# A local dev chain: a node's data directory, and the CKB build it was started from.
+# Both are large, both are regenerated, and neither is anyone else's business.
+/.devnet
+
+.DS_Store

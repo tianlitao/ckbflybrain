@@ -1,0 +1,460 @@
+/* Light theme, matching the tool this is developed in: light surfaces, dark ink, and two
+   accents that carry meaning rather than decoration. Warm means depolarised or fired;
+   cool means hyperpolarised or inhibited. Nothing else is coloured. */
+
+:root {
+  --bg: #f6f6f4;
+  --panel: #ffffff;
+  --ink: #1b1b1a;
+  --muted: #6d6d68;
+  --faint: #9a9a93;
+  --line: #e3e3de;
+  --warm: #c2410c;
+  --cool: #2563eb;
+  --good: #15803d;
+  --bad: #b91c1c;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 28px clamp(16px, 4vw, 48px) 48px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: 22px;
+}
+
+h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ masthead */
+
+.masthead {
+  /* Two explicit columns, not `flex-wrap`. The right-hand column holds the identity table,
+     whose widest row is a 64-character type-script hash with `word-break: break-all` — so its
+     max-content width is enormous, and any layout that lets it take that width pushes the whole
+     column onto a line of its own. Bounding it here is what keeps the wallet button beside the
+     title instead of under it. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+  gap: 24px 40px;
+  align-items: start;
+  max-width: 1280px;
+  margin: 0 auto 24px;
+}
+
+@media (max-width: 900px) {
+  .masthead {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The wallet lives at the top right, above the identity table, because a connect button has to
+   be findable without looking for it. `justify-items: end` keeps it flush with the table. */
+.masthead-side {
+  display: grid;
+  gap: 14px;
+  justify-items: end;
+  min-width: 0;
+}
+
+/* The language switch and the wallet button share the top-right row. The switch is deliberately
+   quiet — it is a setting, not the page's call to action — and the active one is marked by colour
+   rather than by being a different size, so the row does not jump when it changes. */
+.masthead-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.lang-switch {
+  display: flex;
+  gap: 2px;
+}
+
+.lang-switch button.lang {
+  padding: 5px 9px;
+  font-size: 12px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.lang-switch button.lang.active {
+  border-color: var(--line);
+  background: #fbfbfa;
+  color: var(--ink);
+}
+
+.wallet-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.wallet-account {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The one button on the page that is an invitation rather than a control. */
+button.primary {
+  border-color: #2f6f4f;
+  background: #2f6f4f;
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+  border-color: #275c42;
+  background: #275c42;
+}
+
+.standfirst {
+  max-width: 62ch;
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.identity {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 14px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.identity dt {
+  color: var(--faint);
+}
+
+.identity dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* ------------------------------------------------------------------ layout */
+
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 24px;
+  align-items: start;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+@media (max-width: 980px) {
+  main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.stage,
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.stage {
+  padding: 18px 18px 14px;
+}
+
+.stage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.stage canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+
+/* A canvas with no CSS size falls back to its `width`/`height` attributes, which the
+   renderer then reads back through `getBoundingClientRect` — so it draws at the wrong
+   scale, or not at all. Every canvas needs a box before it can be drawn into. */
+.panel canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel {
+  padding: 16px 18px 14px;
+}
+
+.panel h2 + * {
+  margin-top: 10px;
+}
+
+.caption {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------ facts */
+
+.facts {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 13.5px;
+}
+
+.facts dt {
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.facts dd.ok {
+  color: var(--good);
+}
+
+.facts dd.bad {
+  color: var(--bad);
+}
+
+.facts dd.warm {
+  color: var(--warm);
+}
+
+/* ------------------------------------------------------------------ drive */
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfbfa;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: #c9c9c2;
+  background: #f3f3f0;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  text-decoration: underline;
+  padding: 4px 6px;
+}
+
+/* ------------------------------------------------------------------ timeline */
+
+.world-panel {
+  max-width: 1280px;
+  margin: 0 auto 24px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.count {
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.roster li {
+  display: grid;
+  /* Widths measured against the longest value each column holds, in *both* languages, rather
+     than chosen by eye: with the previous numbers `step 1,009,328` and `alive · gen 1` and
+     `17 sightings` did not fit their tracks, so **every English row wrapped onto two lines** and
+     the list read as a wall of broken pairs. Chinese was in the same state before it was
+     shortened. `node roster-widths.mjs` measures text, so the next language can be checked the
+     same way instead of by looking at a screenshot. */
+  grid-template-columns: 2em 11em 3.5em 5em 5.5em 8em 5em 7.5em 9em;
+  gap: 12px;
+  align-items: baseline;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.roster li:hover {
+  background: #fafaf8;
+}
+
+.roster li[aria-current="true"] {
+  background: #f0f6ff;
+  box-shadow: inset 3px 0 0 var(--cool);
+}
+
+.roster .idx,
+.roster .label {
+  color: var(--faint);
+}
+
+.roster .net.negative {
+  color: var(--warm);
+}
+
+.roster .net.positive {
+  color: var(--good);
+}
+
+/* The organism this server holds the key for. Watching is unrestricted; driving is not, and
+   the roster is where a reader finds out which one the buttons act on. */
+.roster .owned {
+  justify-self: start;
+  padding: 0 5px;
+  border: 1px solid var(--cool);
+  border-radius: 999px;
+  color: var(--cool);
+  font-size: 10.5px;
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.roster .dead {
+  color: var(--bad);
+}
+
+.timeline-panel {
+  max-width: 1280px;
+  margin: 24px auto 0;
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+}
+
+.timeline li {
+  display: grid;
+  grid-template-columns: 2.4em 7em minmax(0, 1fr) 5.5em 9em 6em;
+  gap: 12px;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.timeline li:hover {
+  background: #fafaf8;
+}
+
+.timeline li[aria-current="true"] {
+  background: #f0f6ff;
+  box-shadow: inset 3px 0 0 var(--cool);
+}
+
+.timeline .idx,
+.timeline .block,
+.timeline .head {
+  color: var(--faint);
+}
+
+.timeline .action {
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.timeline .action em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.timeline .spikes {
+  text-align: right;
+}
+
+.timeline .spikes.fired {
+  color: var(--warm);
+  font-weight: 600;
+}
+
+footer {
+  max-width: 1280px;
+  margin: 20px auto 0;
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+footer .bad {
+  color: var(--bad);
+}

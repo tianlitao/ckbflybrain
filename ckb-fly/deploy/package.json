@@ -1,0 +1,23 @@
+{
+  "name": "ckb-fly-deploy",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Deploys, drives, indexes and shows the CKB Fly organism",
+  "scripts": {
+    "plan": "node src/cli.js plan",
+    "history": "node src/cli.js history",
+    "serve": "node src/serve.js",
+    "keeper": "node src/keeper.js",
+    "build:front-end": "node build.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@ckb-ccc/core": "^1.21.0",
+    "@ckb-ccc/joy-id": "^1.2.3",
+    "@ckb-ccc/utxo-global": "^1.2.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  }
+}

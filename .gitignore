@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------------------
+# Secrets. First, and deliberately first.
+#
+# `ckb-fly/deploy/.key.<network>` is the deployment key: it owns the code cells,
+# so anyone holding it can spend the capacity they locked. `.key.visitor` signs
+# the page's transactions. Neither belongs in a repository — and a key that has
+# ever been pushed should be treated as spent, because a force-push does not
+# remove it from anyone who already fetched.
+#
+# `deploy/.key` (no suffix) is the dev chain's published key. It is not a secret
+# — it is in CKB's own `resource/specs/dev.toml` — but it is ignored anyway, so
+# that a real key never ends up there by accident.
+# ---------------------------------------------------------------------------
+ckb-fly/deploy/.key
+ckb-fly/deploy/.key.*
+*.key
+*.pem
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+# Rust. `ckb-fly/target` is ~1 GB of intermediate artifacts, and for the RISC-V
+# target `cargo clean -p` does not even clear it — see the Makefile's comment.
+target/
+# The stripped RISC-V contract binaries the integration suite loads, plus the
+# unstripped copies. Reproducible with `make build`; `make checksum` records the
+# hashes a deployment depends on.
+ckb-fly/build/
+# The front-end bundle. `public/app.js` is generated from the `*.source.js` files
+# beside it by `build.mjs` (esbuild), and embeds CCC, JoyID and their
+# dependencies — so committing it would vendor a megabyte of minified
+# third-party code. `make build-front-end` regenerates it.
+ckb-fly/deploy/public/app.js
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+node_modules/
+.venv/
+
+# ---------------------------------------------------------------------------
+# Chain state and the node that produced it
+# ---------------------------------------------------------------------------
+# A dev chain's data directory (~57 MB) and the CKB node built from source to
+# create it. Both are local to this machine; the README explains how to make
+# your own.
+ckb-fly/.devnet/
+.ckbnode/
+
+# ---------------------------------------------------------------------------
+# Third-party trees
+# ---------------------------------------------------------------------------
+# `repo/` is upstream `MidTermDev/immortal-fruit-fly`, `ref/` is
+# `nervosnetwork/ckb-script-templates`. Both are other people's code, both are
+# reproducible from the archives beside them, and only fixture *regeneration*
+# needs them: `scripts/gen_fixture.py` reads `../repo/sim/flysim.py`. The
+# fixture itself is committed, so building and testing this repository does not
+# need either tree.
+repo/
+ref/
+*.tar.gz
+
+# ---------------------------------------------------------------------------
+# Tooling state
+# ---------------------------------------------------------------------------
+.workbuddy/
+.workbuddy-ai/
+.DS_Store

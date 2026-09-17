@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+
+members = [
+  "crates/flycore",
+  "crates/flycircuit",
+  "crates/flyplan",
+  "contracts/flybrain",
+  "contracts/flylock",
+  "contracts/flyworld",
+  "tests",
+]
+
+[profile.release]
+overflow-checks = true
+strip = false
+codegen-units = 1
+debug = true
+
+# The contract binaries are built for RISC-V; the host-side crates and the
+# integration tests are built for the host. Keeping both in one workspace means
+# `cargo test` exercises the exact same `flycore` code the validator runs.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"

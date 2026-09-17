@@ -1,0 +1,15 @@
+[package]
+name = "flycircuit"
+description = "Decoder for the FlyWire head-direction ring attractor circuit table"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["embed"]
+# Embed the 15,065-byte table into the binary. Used by host tests and by the
+# `flysim` reference tool. The on-chain contract reads the table from a
+# cell_dep instead and verifies its keccak256 against the value in script args.
+embed = []
+
+[dependencies]

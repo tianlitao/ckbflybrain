@@ -1,0 +1,9 @@
+# The contract's code hash is part of its on-chain identity: the state cell's type script
+# references the code by data hash, so a different compiler produces a different organism
+# at a different address. Pinning the toolchain is therefore a correctness requirement, not
+# a convenience. `make checksum` records the resulting hashes.
+[toolchain]
+channel = "1.98.1"
+targets = ["riscv64imac-unknown-none-elf"]
+components = ["clippy", "rustfmt"]
+profile = "minimal"
