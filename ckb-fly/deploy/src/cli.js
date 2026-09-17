@@ -196,6 +196,28 @@ function resolvePrivateKey() {
   );
 }
 
+/**
+ * The key this process will sign with, or `null` if it has none.
+ *
+ * Two audiences want opposite things from a missing key. A command that was asked to sign
+ * cannot do its job, so it should stop and say why — that is {@link resolvePrivateKey}, and
+ * it is what the CLI keeps calling. The indexer is the other case: `POST /api/prepare` signs
+ * nothing, so a server that only ever hands unfinished transactions to a visitor's wallet is
+ * a *configuration*, not a fault — and forcing it to hold a key would mean putting a private
+ * key on a public host to satisfy a check that never uses it.
+ *
+ * Catching here is precise because `resolvePrivateKey` throws for exactly one reason, "no key
+ * is configured". A key that is present but malformed is a different problem and still throws
+ * later, from the signer's constructor, where it cannot be mistaken for this one.
+ */
+function tryResolvePrivateKey() {
+  try {
+    return resolvePrivateKey();
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- ccc plumbing
 
 /**
@@ -1676,6 +1698,8 @@ export {
   CONFIG,
   makeClient,
   makeSigner,
+  resolvePrivateKey,
+  tryResolvePrivateKey,
   readDeployment,
   writeDeployment,
   applyAction,

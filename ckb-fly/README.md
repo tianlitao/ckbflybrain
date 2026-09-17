@@ -71,8 +71,9 @@ but warns, because an unstripped binary would need a nineteen-million-CKB code c
 
 `make test-deploy` needs `npm install` in `deploy/` first. See
 [`deploy/README.md`](deploy/README.md) for deploying, driving, indexing and watching the
-fly, and [`docs/playing.md`](docs/playing.md) for what the five moves are, what each one
-costs, and who pays whom.
+fly, [`docs/playing.md`](docs/playing.md) for what the five moves are, what each one
+costs, and who pays whom, and [`docs/hosting.md`](docs/hosting.md) for putting the page on
+the internet.
 
 ---
 
@@ -906,6 +907,7 @@ If you want to run it:
 If you just want to play with it:
 
 13. `docs/playing.md` — the five moves, the price of each, and the loop they form
+14. `docs/hosting.md` — what a public deployment needs, and why the server needs no key
 
 ## Licence
 

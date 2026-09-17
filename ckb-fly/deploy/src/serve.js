@@ -27,11 +27,17 @@
  *
  * | variable | default | meaning |
  * |---|---|---|
- * | `PORT` | `8899` | what to listen on |
+ * | `PORT` | `8899` | what to listen on (loopback; put a tunnel or proxy in front) |
  * | `INDEXER_POLL_MS` | `3000` | how often to look for a new transition |
  * | `INDEXER_ALLOW_DRIVE` | unset | set to `1` to expose `POST /api/act` |
  *
- * Everything `cli.js` reads (`CKB_RPC_URL`, `FLY_STATE`, …) applies here too.
+ * Everything `cli.js` reads (`CKB_RPC_URL`, `FLY_STATE`, …) applies here too — and
+ * `CKB_RPC_URL` is the one to get right, because the network is inferred from it and a
+ * loopback URL means "a dev chain", which selects both the record and the key file.
+ *
+ * **A key is optional.** `POST /api/prepare` signs nothing, so a server that only indexes and
+ * prepares needs no secret; it reports `drive: false` and refuses `POST /api/act` by name.
+ * That is the configuration to deploy publicly, and `docs/hosting.md` is the rest of it.
  */
 
 import { createServer } from "node:http";
@@ -42,7 +48,7 @@ import * as ccc from "@ckb-ccc/core";
 
 import { PROJECT_ROOT } from "./fly.js";
 import * as plan from "./plan.js";
-import { CONFIG, FEE_RATE, applyAction, buildAction, makeClient, makeSigner, readDeployment } from "./cli.js";
+import { CONFIG, FEE_RATE, applyAction, buildAction, makeClient, makeSigner, readDeployment, tryResolvePrivateKey } from "./cli.js";
 import { findHead, identity, readChain } from "./history.js";
 import { ambiguity, createGate, describeAmbiguity, driveAuthorization, rosterDue } from "./watch.js";
 import { classifySendError, describeSendError } from "./send.js";
@@ -373,7 +379,22 @@ async function startIndex() {
   // *record's* fly is not: this is a property of the key the process was started with, which
   // cannot change while it runs, whereas `genesis` rewrites `deployment.fly` underneath a
   // running process — which is exactly why `ownedTypeHash()` reads the record every time.
-  index.myLock = (await makeSigner(await makeClient()).getAddressObjSecp256k1()).script;
+  //
+  // A key is optional, and that is the shape of a public deployment rather than a concession:
+  // `POST /api/prepare` signs nothing, so a server whose only job is to compute successors and
+  // hand unfinished transactions to a visitor's wallet needs no key at all. Requiring one
+  // would mean putting a private key on a public host to satisfy a check that never reads it.
+  // Without a key this process still indexes, draws and prepares; `drive` reports the rest.
+  const key = tryResolvePrivateKey();
+  index.myLock = key
+    ? (await makeSigner(await makeClient()).getAddressObjSecp256k1()).script
+    : null;
+  if (!key) {
+    console.log(
+      "no key: indexing and preparing only. POST /api/prepare is served (a visitor's wallet " +
+        "pays and signs), POST /api/act is not, because there is nothing here to sign with.",
+    );
+  }
 
   circuit = plan.circuit({ layout: true });
   params = plan.params(deployment.params);
@@ -530,6 +551,18 @@ async function handleAct(req, res) {
     return json(res, 403, {
       error:
         "driving the fly from the browser is disabled. Start the server with INDEXER_ALLOW_DRIVE=1 to enable it; it signs transactions with the key in CKB_PRIVATE_KEY, which is only appropriate on a chain where that key is not worth anything.",
+    });
+  }
+
+  // The other half of `drive`, checked here as well as reported there. A click that reached
+  // this far without a key would otherwise fail deep inside the transaction builder, and the
+  // message would name a missing file rather than the thing the operator actually has to
+  // change. `prepare` is the endpoint that works in this configuration, so it is named.
+  if (index.myLock === null) {
+    return json(res, 503, {
+      ok: false,
+      error:
+        "this server was started without a key, so it cannot sign. A visitor's wallet can still drive this organism — that path goes through POST /api/prepare, which signs nothing. To let the page sign with a server key, set CKB_PRIVATE_KEY or write a key file and restart.",
     });
   }
 
@@ -801,7 +834,14 @@ function diagnostics(owned, walletLock = null) {
   return {
     updatedAt: index.updatedAt,
     error: index.error,
-    drive: ALLOW_DRIVE,
+    // "Would this server sign at all" — and a server started without a key would not, so the
+    // operator's opt-in is only half the answer. It used to be the whole of it, which was
+    // invisible while every process had a key: with `INDEXER_ALLOW_DRIVE=1` and no key, a
+    // public organism is still `drivable` (its lock accepts anything, which is a fact about
+    // the *lock*), so the page enabled five buttons and every click died inside the
+    // transaction builder with "no key for preview" — a message about a file, for a problem
+    // about a configuration. `drivable` answers the lock; `drive` answers the process.
+    drive: ALLOW_DRIVE && index.myLock !== null,
     drivable: auth.allowed,
     // Which key `drivable` is about: the server's, or the wallet the reader connected. The page
     // uses it to decide which endpoint a click goes to, so the two cannot drift apart.
