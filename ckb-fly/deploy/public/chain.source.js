@@ -88,6 +88,15 @@ export function createFeed({ config, table, pollMs = 3000, limit = 500 }) {
   let circuit = null;
   const listeners = [];
 
+  // The roster needs an order that survives polls, and nothing in the data provides one: `rows`
+  // comes back in cell order, but the chronicle queries below complete in whatever order the
+  // network answers them, so the map behind `index.flies` is assembled in a different sequence on
+  // every poll — and a list that reshuffles itself every three seconds is a list a reader cannot
+  // point at ("which row was I looking at?"). A fly is numbered the first time the page sees it
+  // and keeps that number for as long as the page is open; new organisms join at the end.
+  const firstSeen = new Map();
+  let seenCount = 0;
+
   /**
    * The connectome, checked against the one the fly says it is running.
    *
@@ -180,7 +189,13 @@ export function createFeed({ config, table, pollMs = 3000, limit = 500 }) {
       params: paramsJson(config.params),
       economics: economicsJson(config.economics),
       chronicle: index.chronicle,
-      roster: [...index.flies.values()].map((fly) => ({
+      roster: [...index.flies.values()]
+        .sort(
+          (a, b) =>
+            (firstSeen.get(a.typeHash) ?? Number.MAX_SAFE_INTEGER) -
+            (firstSeen.get(b.typeHash) ?? Number.MAX_SAFE_INTEGER),
+        )
+        .map((fly) => ({
         typeHash: fly.typeHash,
         instance: fly.instance,
         state: fly.state,
@@ -246,6 +261,15 @@ export function createFeed({ config, table, pollMs = 3000, limit = 500 }) {
         }),
       );
       index.flies = flies;
+
+      // Number any organism the page has not seen before. Assigned here rather than in the
+      // snapshot so that the order is fixed by *discovery*, not by however the map happens to be
+      // sitting when the reader asks for a picture of it.
+      for (const typeHash of flies.keys()) {
+        if (!firstSeen.has(typeHash)) {
+          firstSeen.set(typeHash, seenCount++);
+        }
+      }
 
       // The watched organism can disappear: someone may have spent it and not yet committed
       // its successor, or the record may name a fly from another chain. Falling back to

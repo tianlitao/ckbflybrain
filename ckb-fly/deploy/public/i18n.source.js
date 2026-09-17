@@ -231,9 +231,9 @@ const EN = {
   // second page with its own strings written into its own HTML is a page that silently stops
   // being translated the first time somebody edits one of them.
   "nav.home": "the fly",
-  "nav.about": "what this is",
+  "nav.about": "what it means",
   "nav.guide": "how to read it",
-  "doc.titleAbout": "CKB Fly — what this is",
+  "doc.titleAbout": "CKB Fly — what it means",
   "doc.titleGuide": "CKB Fly — how to read the page",
 
   "about.title": "What this is",
@@ -258,28 +258,6 @@ const EN = {
     "the same engram values and the same 16 heading bins, checked against the real action " +
     "sequence that contract executed on mainnet and replayed inside CKB-VM.",
 
-  "about.cell.heading": "Why CKB, and why there is no token",
-  "about.cell.body":
-    "On the EVM the fly's state lives in storage slots, and every step pays for every slot it " +
-    "rewrites. Here the whole state is one cell of 1,213 bytes: a step consumes it and creates " +
-    "the next one, and the script that guards it writes nothing — it recomputes the result from " +
-    "the action in the witness and refuses anything that does not match. Fees are charged by " +
-    "transaction size rather than by computation, so a step here costs about 2,385 shannons " +
-    "(measured) where the same step on BSC cost 0.00034 BNB.\n\n" +
-    "There is no token. A step of life is backed by capacity locked inside the fly — 10,000 " +
-    "shannons per step — and the type script will not let the body be destroyed, so that capacity " +
-    "cannot be taken out again.",
-
-  "about.immortal.heading": "What \u201cimmortal\u201d means here, exactly",
-  "about.immortal.body":
-    "The type script requires that any transaction touching the fly produces exactly one output " +
-    "cell of the same type, with the same lock. So nothing can delete the fly — not even whoever " +
-    "deployed it — because there is no way to spend the cell without leaving a successor. Dying " +
-    "is not an exception: death is a state (life reaches zero and the fly stops), and " +
-    "<code>resurrect</code> starts a new life and adds one to the generation. Beside it is a " +
-    "second type script, <code>flyworld</code>, which is updated in the same transaction and is " +
-    "not told what happened: it has to look at the fly itself.",
-
   "about.server.heading": "There is no server",
   "about.server.body":
     "This is a folder of files. The page reads the chain directly over JSON-RPC, works out the " +
@@ -288,13 +266,6 @@ const EN = {
     "Connect a wallet and you pay and sign. There is no operator, and nothing to keep running.",
 
   "about.not.heading": "What this is not",
-  "about.not.body":
-    "What runs here is the fly's heading circuit, not its whole brain. A whole brain does not " +
-    "fit on a chain.\n\n" +
-    "How far back the page can show depends on how far back the node you are reading remembers; " +
-    "run your own CKB node if you want older history.\n\n" +
-    "And a fly whose lock is <code>flylock</code> can be driven by anyone. That is what public " +
-    "means here.",
 
   "about.more":
     "Next: <a href=\"./guide.html\">how to read the page</a> — what every number, colour and " +
@@ -417,6 +388,50 @@ const EN = {
   "guide.back":
     "<strong>Back to the fly.</strong> <a href=\"./index.html\">The organism itself</a> is on the " +
     "front page — this one is only prose.",
+  "about.meaning.heading":
+    "What it is, in one line",
+  "about.meaning.body":
+    "<strong>It is not an investment, not an NFT, not a clicker game — it is a thought experiment and a technical demo built on CKB's Cell/UTXO model: a simplified biological neural network stored whole in a chain cell, kept and poked by everyone.</strong> One organism, 155 neurons, 6,522 connections, from the FlyWire release 783 connectome.",
+  "about.tech.heading":
+    "Why it matters for the chain",
+  "about.tech.1":
+    "<strong>A dynamic state machine, kept on chain.</strong> The whole network — neurons, synapses, position, life — is packed into the cell's data field, and the type script checks that the new state is exactly what the action computes and that the lock is unchanged. Nobody can rewrite the brain's parameters, and nobody can delete the fly.",
+  "about.tech.note1":
+    "An ordinary on-chain contract stores simple data — a balance, a boolean. This one keeps a simulated brain that keeps changing, as cell state.",
+  "about.tech.2":
+    "<strong>CKB's own storage economics, used as a life resource.</strong> Feeding locks CKB into the cell and buys steps of life; ticking spends steps and releases that capacity back to whoever ticked. That is a decentralised commons in miniature: some people donate to keep it alive, some people tick and take, and how long the fly lives is decided by that game rather than by an owner.",
+  "about.tech.3":
+    "<strong>A demonstration of races.</strong> Two people clicking the same fly at the same moment collide — a cell can only be consumed once per version — which is the most visible way to show what concurrency conflicts look like in a UTXO model.",
+  "about.tech.4":
+    "<strong>The client computes, the chain verifies, and both run the same code.</strong> The page works out the next state with <code>flywasm</code> and puts it in the transaction; the type script then runs the same simulation again inside CKB-VM and compares byte for byte, rejecting the whole transaction on any difference. What is saved is not computation — the chain runs it too — it is trust: the result has to be reproducible by anyone.",
+  "about.tech.note2":
+    "In one line: this fly demonstrates that CKB's Cell model can carry a complex state machine, a commons economy, and one simulation shared by the client and the chain.",
+  "about.philo.heading":
+    "Why it matters as an idea",
+  "about.philo.1":
+    "<strong>A minimal on-chain digital-life experiment.</strong> The brain state, the position and the life are all on the chain and evolve by the contract's rules — not by a server, and not by a person. There is no operator; if the author disappeared tomorrow, the fly would keep running as long as anyone sends transactions. And its behaviour comes from the neural network rather than from a hardcoded script: you can only poke it (a cue, a shock), you cannot edit its brain.",
+  "about.philo.note":
+    "To be clear about the scale: this is a 155-neuron simplified model, not the research-grade full FlyWire fly brain with its hundred-odd thousand neurons.",
+  "about.philo.2":
+    "<strong>A commons game you can watch.</strong> The interests genuinely conflict: whoever ticks takes capacity out, whoever feeds puts CKB in for nothing but the fly's survival. With nobody in charge, does the fly get ticked to death, or does someone keep feeding it? That question answers itself in public, one transaction at a time.",
+  "about.edu.heading":
+    "Why it matters for learning",
+  "about.edu.1":
+    "It teaches CKB's Cell/UTXO model, capacity-backed state, and how the client and the chain divide the work.",
+  "about.edu.2":
+    "It makes a connectome visible: behaviour comes out of synaptic wiring, not out of a list of if statements.",
+  "about.edu.3":
+    "And anyone can play with it: stimulate the network, watch the response, and see the whole loop from sensing to neural computation to action.",
+  "about.not.1":
+    "It is not an investment: there is no token and no NFT to appreciate, and holding a fly long term earns nothing. The CKB a ticker takes out is capacity somebody locked in earlier — it does not appear from anywhere.",
+  "about.not.2":
+    "It is not research: 155 neurons is a simplified toy model, and it cannot be used for real neuroscience.",
+  "about.not.3":
+    "It is not a product: it is an open-source experiment, and it can end — if nobody feeds it and nobody ticks it, the fly dies. That is part of the design, not a failure of it.",
+  "about.summary.heading":
+    "In one line",
+  "about.summary.body":
+    "Technically: an advanced demo of CKB's Cell model — a complex state machine on chain, plus a commons economy.\nAs an idea: a decentralised digital life, and a small experiment in public-goods game theory.\nAs a position: an open-source technical toy, here to be experienced and learned from, with no financial value to hold.",
 };
 
 const ZH = {
@@ -595,9 +610,9 @@ const ZH = {
   "status.cannotLoad": "无法加载 {tx}",
 
   "nav.home": "果蝇",
-  "nav.about": "这是什么",
+  "nav.about": "它的意义",
   "nav.guide": "怎么看",
-  "doc.titleAbout": "CKB 果蝇 —— 这是什么",
+  "doc.titleAbout": "CKB 果蝇 —— 它的意义",
   "doc.titleGuide": "CKB 果蝇 —— 页面怎么看",
 
   "about.title": "这是什么",
@@ -619,24 +634,6 @@ const ZH = {
     "同样的 engram、同样的 16 个朝向直方图格——这是对着主网上真实执行过的动作序列核对过的，" +
     "也在 CKB-VM 里重放过。",
 
-  "about.cell.heading": "为什么放 CKB 上，以及为什么没有代币",
-  "about.cell.body":
-    "在 EVM 上，果蝇的状态存在 storage 槽里，每一步都要为改写的每个槽付费。" +
-    "在这里，整个状态就是 1,213 字节的一个 cell：一步消费它、创建下一个，" +
-    "守着它的脚本什么都不写——它按 witness 里的动作把结果重算一遍，对不上就拒绝。" +
-    "手续费按交易大小收，不按计算量收，所以这里一步约 2,385 shannons（实测），" +
-    "而同样的那一步在 BSC 上是 0.00034 BNB。\n\n" +
-    "没有代币。一步寿命由锁在果蝇身体里的容量背书——每步 10,000 shannons——" +
-    "而 type script 不允许销毁这具身体，所以这部分容量取不出来。",
-
-  "about.immortal.heading": "「永生」在这里的准确含义",
-  "about.immortal.body":
-    "type script 要求：任何碰到这只果蝇的交易，都必须产出恰好一个同类型、同 lock 的输出 cell。" +
-    "所以没有谁能删掉它——连部署者也不行——因为不存在一种「花掉它却不留下后继」的花法。" +
-    "死亡不是例外：死是一种状态（寿命归零、停止活动），<code>resurrect</code> 会开始新的一生、把代数加一。" +
-    "旁边那份记录是第二个 type script，<code>flyworld</code>，" +
-    "它和它所描述的那次转换在同一笔交易里更新，而且不被告知发生了什么：它必须自己去看这只果蝇。",
-
   "about.server.heading": "这里没有服务器",
   "about.server.body":
     "这就是一个目录里的若干文件。页面用 JSON-RPC 直接读链，在你的浏览器里用 <code>flywasm</code> " +
@@ -644,10 +641,6 @@ const ZH = {
     "连上钱包之后，你付费、你签名。没有运营方，也没有需要一直跑着的服务。",
 
   "about.not.heading": "它不是什么",
-  "about.not.body":
-    "这里跑的是果蝇的朝向回路，不是整只大脑。整只大脑目前放不到链上。\n\n" +
-    "页面能显示多久的历史，取决于你连的节点还记得多久；想看得更早，自己跑一个 CKB 节点就行。\n\n" +
-    "另外，lock 是 <code>flylock</code> 的果蝇谁都能驱动——这就是这里「公开」的意思。",
 
   "about.more":
     "接着看：<a href=\"./guide.html\">页面怎么看</a>——每个数字、每种颜色、每个按钮是什么意思。",
@@ -748,6 +741,50 @@ const ZH = {
     "连接组本身来自 FlyWire，链上只钉住了它的哈希，这一点没法从这个页面验证。",
   "guide.back":
     "<strong>回到果蝇。</strong><a href=\"./index.html\">它本身</a>在首页——这一页只是说明。",
+  "about.meaning.heading":
+    "一句话定位",
+  "about.meaning.body":
+    "<strong>它不是赚钱项目，不是 NFT，也不是链游——它是在 CKB 的 Cell/UTXO 模型上做的「思想实验 + 技术 Demo」：把一个简化生物神经网络完整存进链上的 Cell，让所有人共同维护、交互这只链上小生命。</strong>一只果蝇，155 个神经元、6,522 条连接，连接组来自 FlyWire release 783。",
+  "about.tech.heading":
+    "区块链技术层面的意义",
+  "about.tech.1":
+    "<strong>链上托管动态状态机。</strong>整套神经网络——神经元、突触、位置、生命——都打包在 cell 的数据字段里。type script 强制校验：新状态必须等于这次动作算出来的结果、输出 lock 必须等于输入 lock。任何人都改不了它的大脑参数，也删不掉它。",
+  "about.tech.note1":
+    "普通链上合约一般只存简单数据（余额、布尔值）；这里直接把一个持续演化的仿真大脑作为 cell 状态。",
+  "about.tech.2":
+    "<strong>用 CKB 原生的存储经济学做生命资源。</strong>投喂（feed）把 CKB 锁进 cell、增加寿命，相当于给生命充值；推进（tick）消耗寿命，把对应的容量释放给操作者。这就成了一套去中心化的公共资源博弈：有人捐币续命，有人跑 tick 取回容量，这只果蝇能活多久由这场博弈决定，而不是由某个所有者决定。",
+  "about.tech.3":
+    "<strong>竞态环境的演示。</strong>两个人同时操作同一只果蝇，就会撞上交易竞态（同一个版本的 cell 只能被消费一次）——这是 UTXO 模型下并发冲突最直观的展示。",
+  "about.tech.4":
+    "<strong>客户端算、链上验，跑的是同一份代码。</strong>页面先用 <code>flywasm</code> 把下一步算出来、拼进交易；链上的 type script 再把同样的模拟在 CKB-VM 里完整跑一遍，逐字节比对，对不上就整笔拒绝。省下的不是计算——链上也要跑——省下的是信任：结果必须任何人都能重算出来。",
+  "about.tech.note2":
+    "一句话：这只果蝇用来展示 CKB 的 Cell 模型能承载复杂状态机、公共资源博弈，以及同一份模拟代码在客户端与链上共用。",
+  "about.philo.heading":
+    "思想实验层面的意义",
+  "about.philo.1":
+    "<strong>一个最小化的链上数字生命实验。</strong>大脑状态、位置、生命全在链上，由合约规则演化，不由某个服务器或某个人控制：没有运营方，就算作者消失，只要有人发交易，它就继续跑。行为来自神经网络，不是写死的脚本——你只能给刺激（线索、电击），不能直接改它的大脑。",
+  "about.philo.note":
+    "规模先说清楚：这是 155 个神经元的简化模型，不是科研意义上那只十几万神经元的完整 FlyWire 果蝇脑，不要混淆。",
+  "about.philo.2":
+    "<strong>一场看得见的公共品博弈。</strong>利益天然冲突：跑 tick 的人取回容量，投喂的人白白投入 CKB、只为让它活下去。没有管理员的情况下，它会被薅死，还是有人持续续命？这个问题由一笔笔交易在公开场合自己回答。",
+  "about.edu.heading":
+    "科普与教育层面的意义",
+  "about.edu.1":
+    "帮开发者理解 CKB 的 Cell/UTXO 模型、用容量背书状态，以及「客户端算、链上验」的分工。",
+  "about.edu.2":
+    "把连接组变成看得见的东西：行为来自突触连接，不是一串写死的 if。",
+  "about.edu.3":
+    "普通玩家也能玩：刺激它的神经网络，看它对刺激的反应，看懂「感知 → 神经计算 → 行动」的闭环。",
+  "about.not.1":
+    "不是投资品：没有代币、没有 NFT 升值预期，长期持有果蝇赚不到钱。tick 拿到的 CKB 是之前被锁进这具身体的容量，不是凭空产生的收益。",
+  "about.not.2":
+    "不是科研项目：155 个神经元是简化玩具模型，不能用于真实的神经科学研究。",
+  "about.not.3":
+    "不是正式产品：开源实验 Demo。没人投喂、没人操作时它会死，这是设计的一部分，不是故障。",
+  "about.summary.heading":
+    "一句话总结",
+  "about.summary.body":
+    "技术上：一个 CKB Cell 模型的高级 Demo，展示链上托管复杂状态机 + 公共资源经济学。\n思想上：去中心化数字生命 + 公共品博弈的小实验。\n定位上：开源技术玩具，重在体验和学习，没有任何金融投资价值。",
 };
 
 const DICTS = { en: EN, zh: ZH };

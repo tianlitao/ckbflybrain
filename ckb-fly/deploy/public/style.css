@@ -1214,3 +1214,13 @@ ccc-connector {
     transition: none !important;
   }
 }
+
+/* ---- the two asides on the meaning page: a quieter voice set one step to the side */
+
+.prose blockquote.aside {
+  margin: 10px 0 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--line-2);
+  color: var(--muted);
+  font-size: 13px;
+}
