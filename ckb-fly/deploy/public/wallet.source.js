@@ -53,9 +53,22 @@
  * @module wallet
  */
 
+// One import per wallet, not the `@ckb-ccc/ccc` umbrella. The umbrella is convenient — it
+// re-exports core and every adapter — but it also re-exports Spore, DID, type-id, UDT, the backend
+// shell, and through Xverse the whole of bitcoinjs-lib and axios. None of that signs anything here,
+// and it took the bundle from 885 KB to 1.4 MB. Importing the adapters directly costs six lines and
+// keeps the page to the code it uses.
+//
+// Every one of these pins `@ckb-ccc/core` at exactly the version this project depends on, so npm
+// installs one copy. That matters more than it looks: two copies means two `Transaction` classes,
+// and a wallet handed a transaction built by the other one.
 import * as ccc from "@ckb-ccc/core";
-import { UtxoGlobal } from "@ckb-ccc/utxo-global";
 import { JoyId } from "@ckb-ccc/joy-id";
+import { Okx } from "@ckb-ccc/okx";
+import { Rei } from "@ckb-ccc/rei";
+import { UniSat } from "@ckb-ccc/uni-sat";
+import { UtxoGlobal } from "@ckb-ccc/utxo-global";
+import { Xverse } from "@ckb-ccc/xverse";
 
 /**
  * The icon JoyID shows beside the app name.
@@ -83,35 +96,64 @@ function appIcon() {
 }
 
 /**
+ * Label a signer with the wallet it came from.
+ *
+ * JoyID names its CKB signer "CKB" — the *chain* — so the page's only connect control read
+ * "Connect CKB", and the ceremony behind it is a passkey prompt from JoyID. That is a surprising
+ * enough thing to be asked for that the reader deserves to be told whose prompt it is. The
+ * factories know which wallet they are, so the label is set here; `connect()` records the name
+ * from this list, which is what the connected-state label then shows.
+ *
+ * @param {string} wallet
+ */
+const named = (wallet) => (info) => ({ ...info, name: wallet });
+
+/**
  * Everything offerable in this browser, in the order a reader should try it.
  *
- * Only signers that can sign a **CKB** transaction are kept. Both adapters return more than that:
- * JoyID offers BTC, EVM and Nostr as well, and UTXO Global adds BTC and DOGE. Those are real
- * signers for other chains and they are useless here — picked from a list, one of them produces
- * a failure deep inside fee completion, or worse a signature over the wrong preimage, and the
- * reader has no way to know they chose the wrong kind of thing. The filter is `signType`'s chain,
- * which is what the signer itself says it signs.
+ * One line per wallet CCC ships an adapter for, because each adapter knows how to find its own
+ * wallet — an extension, a popup, a passkey — and returns `SignerInfo[]`. That uniformity is what
+ * makes this a list rather than a set of special cases, and adding a wallet CCC supports is one
+ * more line and nothing else.
  *
- * **Each wallet is named for the wallet, not for the chain.** JoyID labels its CKB signer "CKB",
- * so the page's only connect control read "Connect CKB" — and the ceremony behind it is a
- * passkey prompt from JoyID, which is a surprising enough thing to be asked for that the reader
- * deserves to be told whose prompt it is. The factories already know which wallet they came
- * from, so the label is set here; `connect()` still records the name from this list, which is
- * what the connected-state label shows.
+ * Only signers that can sign a **CKB** transaction are kept. Every adapter returns more than that:
+ * JoyID offers BTC, EVM and Nostr as well, UTXO Global adds BTC and DOGE. A signer for another
+ * chain is useless here — picked from a list, one of them fails deep inside fee completion, or
+ * worse signs the wrong preimage, and the reader has no way to know they chose the wrong kind of
+ * thing. The filter is `signer.type`, which is what the signer itself says it signs.
+ *
+ * **Which of these can actually move the fly, in CCC 1.2.3 / 1.1.12.** Read off the type
+ * definitions, since a headless browser has no extensions installed and every factory returns an
+ * empty list there:
+ *
+ *   joy-id        `CkbSigner extends ccc.Signer`     — CKB, and it needs nothing installed
+ *   utxo-global   `SignerCkb extends ccc.Signer`     — CKB
+ *   rei           `ReiSigner extends ccc.Signer`     — CKB
+ *   okx           `BitcoinSigner extends SignerBtc`  — Bitcoin only
+ *   uni-sat       `Signer extends SignerBtc`         — Bitcoin only
+ *   xverse        `Signer extends SignerBtc`         — Bitcoin only
+ *
+ * The three Bitcoin-only ones are listed anyway, and the filter above is what makes that safe: a
+ * reader never sees a wallet that cannot sign here. Keeping the lines means a CCC version that
+ * gives them CKB support needs no change on this side. It is not free — Xverse's adapter drags in
+ * bitcoinjs-lib and valibot, about 215 KB minified, for a wallet that can never appear. Dropping
+ * those three lines is the way to buy that back.
  *
  * @param {ccc.Client} client
  * @returns {ccc.SignerInfo[]}
  */
 function adapters(client) {
   const offered = [
-    ...UtxoGlobal.getUtxoGlobalSigners(client).map((info) => ({ ...info, name: "UTXO Global" })),
-    // A popup opened outside a click handler is blocked, and the click that connects happens
-    // later than this list is built — so nothing here opens anything. `connect()` does, and it is
-    // called from the button.
-    ...JoyId.getJoyIdSigners(client, "CKB Fly", appIcon()).map((info) => ({
-      ...info,
-      name: "JoyID",
-    })),
+    ...UniSat.getUniSatSigners(client).map(named("UniSat")),
+    ...Okx.getOKXSigners(client).map(named("OKX")),
+    // Xverse returns `{ wallet, signerInfo }[]` rather than `SignerInfo[]` — the one adapter with a
+    // different shape, and the reason this list is worth reading rather than skimming.
+    ...Xverse.getXverseSigners(client).map((x) => named("Xverse")(x.signerInfo)),
+    ...Rei.getReiSigners(client).map(named("Rei")),
+    ...UtxoGlobal.getUtxoGlobalSigners(client).map(named("UTXO Global")),
+    // A popup opened outside a click handler is blocked, and the click that connects happens later
+    // than this list is built — so nothing here opens anything. `connect()` does, from the button.
+    ...JoyId.getJoyIdSigners(client, "CKB Fly", appIcon()).map(named("JoyID")),
   ];
   return offered.filter((info) => info.signer.type === ccc.SignerType.CKB);
 }
