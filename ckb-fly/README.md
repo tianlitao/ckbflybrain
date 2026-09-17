@@ -71,7 +71,8 @@ but warns, because an unstripped binary would need a nineteen-million-CKB code c
 
 `make test-deploy` needs `npm install` in `deploy/` first. See
 [`deploy/README.md`](deploy/README.md) for deploying, driving, indexing and watching the
-fly.
+fly, and [`docs/playing.md`](docs/playing.md) for what the five moves are, what each one
+costs, and who pays whom.
 
 ---
 
@@ -901,6 +902,10 @@ If you want to run it:
 10. `deploy/src/serve.js` — the indexer, and the page's host
 11. `deploy/public/app.js` — what is drawn, and why those three things
 12. `deploy/test/golden.test.js` — how the JavaScript mirror is kept honest
+
+If you just want to play with it:
+
+13. `docs/playing.md` — the five moves, the price of each, and the loop they form
 
 ## Licence
 
