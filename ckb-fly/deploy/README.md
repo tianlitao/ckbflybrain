@@ -6,8 +6,8 @@ This directory is everything that talks to a chain. Three jobs, one npm install:
 |---|---|---|
 | **Deploy and drive** | build, sign and send transactions; keep a record of what was deployed | `src/cli.js` |
 | **Keep alive** | tick on a schedule, feed when the fly runs low, retry when someone else got there first | `src/keeper.js` |
-| **Index** | recover the fly's whole life from the chain, incrementally | `src/history.js`, `src/serve.js` |
-| **Show** | a page that draws the ring attractor, the heading and the walk | `public/` |
+| **Index** | recover a fly's whole life from the chain | `src/history.js` — used by the CLI, and by the page through `public/chain.source.js` |
+| **Show** | a page that draws the ring attractor, the heading and the walk, and reads the chain itself | `public/` |
 
 The neural work is not here. It is in `crates/flyplan`, a host binary over `flycore` — the
 same crate the on-chain validator runs.
@@ -134,12 +134,16 @@ once per version.
 
 ```sh
 npm run serve                        # http://127.0.0.1:8899
-INDEXER_ALLOW_DRIVE=1 npm run serve  # …and let the page drive the fly
 ```
 
-The server indexes the fly and hosts the page from the same origin. That last part is not
-laziness: a page talking to a CKB node directly needs that node to allow CORS, and a dev
-chain may not be configured to. Same-origin removes the question.
+`npm run serve` is a static file server over `public/` — `src/static-page.js`, and all of it.
+There is no indexer: the page reads the chain itself over JSON-RPC, computes the successor
+state with `flywasm`, and builds its own transaction, so there is nothing left for a server
+to do but hand over files. It exists for development and for reading the page from this
+machine; a public deployment uploads `public/` to any static host and runs nothing.
+
+To *move* the fly from the page, connect a wallet: you pay, you sign, and the page never sees
+your key. The server has no key of its own, so there is no flag that would let it spend one.
 
 The page lists every organism on the chain and lets you watch any of them. Discovery is by
 **code hash with a prefix match on the args**, which is the only search that can express "any
@@ -156,9 +160,9 @@ potential. Between two on-chain states the page interpolates — the chain's sta
 frames that actually happened, and the smoothing between them is the only thing on the page
 that is not literally from a cell.
 
-**`INDEXER_ALLOW_DRIVE=1` signs transactions with the key in `CKB_PRIVATE_KEY`.** That is
-fine on a dev chain where the key is worthless and published in `resource/specs/dev.toml`;
-it is not fine anywhere else, which is why it is off by default and why the page says so.
+**Nothing on this page signs anything.** Every move is paid for and signed by the reader's own
+wallet; the only key that ever appears in a process here is the one the CLI and the keeper use
+from `deploy/.key.<network>`, and the page cannot reach it.
 
 ### Configuration
 
@@ -174,9 +178,7 @@ it is not fine anywhere else, which is why it is off by default and why the page
 | `FLY_ENERGY` | `1000000` | steps of life the newborn fly starts with |
 | `FLY_STATE` | `deploy/deployment.<network>.json` (`deploy/deployment.json` on a dev chain) | where the deployment record goes |
 | `FLYPLAN` | `target/{debug,release}/flyplan` | the planner binary |
-| `PORT` | `8899` | what the indexer listens on |
-| `INDEXER_POLL_MS` | `3000` | how often the indexer looks for a new transition |
-| `INDEXER_ALLOW_DRIVE` | unset | set to `1` to expose `POST /api/act`, which signs with the **server's** key. `POST /api/prepare` — the wallet path — signs nothing and is always served |
+| `PORT` | `8899` | what `npm run serve` listens on |
 | `KEEPER_INTERVAL_MS` | `5000` | how long the keeper waits between ticks |
 | `KEEPER_STEPS` | `64` | steps per tick |
 | `KEEPER_FEED_BELOW` | `200000` | feed when the fly has fewer steps of life than this |
@@ -293,10 +295,11 @@ out points and code hashes, the fly's type script and lock, its current state ce
 chronicle, and a log of every action applied. It is chain state, not source: the out points
 exist on one chain and nowhere else.
 
-The indexer reads only the fly's **identity** from it — the type script, and from that its
-hash — and then finds the current cell by asking the chain and walks backwards from there.
-So `serve.js` can be pointed at a fly this machine did not create, as long as it knows the
-type script hash.
+A reader of the record needs only the fly's **identity** from it — the type script, and from that
+its hash — and then finds the current cell by asking the chain and walks backwards from there.
+So the page can be pointed at a fly this machine did not create, as long as it knows the type
+script hash; that is what `public/deployment.json` is for, and it is why the page can watch any
+organism on the chain rather than only the one the record names.
 
 ---
 
@@ -347,20 +350,31 @@ node src/cli.js history
 Nothing in that table was emitted by anything. Every row is a state cell that exists, and
 an action that a validator read.
 
-### The API
+### There is no API
 
-| endpoint | what |
+There used to be one — `GET /api/fly`, `GET /api/flies`, `GET /api/state`, `GET /api/events`,
+`POST /api/act`, `POST /api/prepare` — and it is deleted, not deprecated. A server that answers
+those questions is a process somebody has to keep alive, and there is nothing left for it to
+know:
+
+| what a reader asks for | who answers it now |
 |---|---|
-| `GET /api/fly` | identity, circuit, prices, the current state (with the per-neuron arrays) and the whole history (without them). `?type=<typeHash>` switches which organism is being watched; `?address=<ckt1…>` makes `meta.drivable` describe *that* wallet instead of the server's key |
-| `GET /api/flies` | every organism on the chain, with its own chronicle — found by asking for cells that wear the flybrain *code*, since each fly has a different type script |
-| `GET /api/state?tx=…` | one past state, decoded on demand — 465 numbers per transition is a payload nobody draws, so they are fetched when someone looks |
-| `GET /api/events` | server-sent events: an `append` frame per new transition |
-| `POST /api/act` | drive the organism on screen **with this server's key**; only with `INDEXER_ALLOW_DRIVE=1`, and only if its lock is one that key can satisfy — `flylock` (public, anyone may) or this server's own lock. A lock it cannot sign for returns `409` and builds nothing |
-| `POST /api/prepare` | build the organism's next transition for **somebody else's key** to sign and pay for. Signs nothing, completes no fee, reads no private key, and therefore does *not* need `INDEXER_ALLOW_DRIVE`. Requires `address`, because the lock check is about that wallet. See "Wallets" below |
-| `GET /` | the page |
+| identity, circuit, prices, the current state, the whole history | `public/chain.source.js`, over JSON-RPC |
+| every organism on the chain | the same, by code hash — see above |
+| one past state, decoded on demand | `src/fly.js`'s `decodeState`, in the browser |
+| a new transition, as it happens | the page polls every 3 s |
+| the successor state | `flywasm`, in the browser — the same `flycore`, third target |
+| an unsigned transaction to sign | `public/prepare.source.js` over `src/tx.js`, in the browser |
 
-`POST /api/act` answers with `ok`, `applied` and `txHash`, and the two former are not the same
-question. A **public** organism is a UTXO: two visitors clicking the same button at the same
+One row on that list has a story the others do not. `get_cells` does not return cell data, and a
+spent cell can never be fetched again, so every history entry carries the `stateHex` it was
+decoded from. That copy is the only one that will ever exist, and it is what makes "show me step
+41" a purely local operation — measured in a browser, pinning a past state issues **no network
+requests at all**.
+
+The races below were measured against the old endpoints and are unchanged, because they are
+properties of a public organism on a UTXO chain rather than of whoever served the page. A
+**public** organism is a UTXO: two visitors clicking the same button at the same
 moment do not both get their wish, and one of them does not get an error either. Measured in two
 browser tabs on preview testnet, `tick 32` clicked simultaneously:
 
@@ -397,33 +411,30 @@ perfectly healthy. `RBF` is now in the lost-race patterns in `src/send.js`, so t
 what happened (`409`, `lost: true`, naming the organism and saying actions are not queued) and the
 keeper keeps its hands on a fly that is being ticked by people.
 
-Both kinds are answered immediately and the chain re-walk is *not* awaited: walking a fly takes
-about twenty seconds, and making somebody wait that long to be told "someone else got there
-first" is a worse page than one whose step counter catches up a few seconds later through the
-poll and the SSE frame it broadcasts. Measured: awaiting it turned an instant answer into 23s.
+Both kinds are answered as soon as the node has spoken, and the chain re-walk is *not* awaited:
+walking a fly takes about twenty seconds, and making somebody wait that long to be told "someone
+else got there first" is a worse page than one whose step counter catches up a few seconds later
+through the poll. Measured: awaiting it turned an instant answer into 23s.
 
-`meta` on both `/api/fly` and `/api/flies` carries `drive` (this server would sign at all),
-`drivable` (`driveAuthorization`: the lock the watched organism wears is one its key can
-satisfy — the same call `POST /api/act` sends or refuses on, so the button state and the answer
-cannot disagree), `as` (whose key that answer is about: `"server"`, or `"wallet"` when the
-request carried an address), `prepare` (`POST /api/prepare` exists), `watchingOwn` (the watched
-organism is the one the deployment *record* selects — a fact worth reporting, and deliberately
-not part of the decision, because `genesis` rewrites the record and an organism created by
-`genesis --lock owner` is not in it), and
-`collisions` — the type scripts
-worn by more than one live cell, which should always be empty. See "A fly can branch" below.
-The two endpoints differ in one field: `/api/fly` counts *transitions* (`count`) and
-`/api/flies` counts *organisms* (`organisms`), because one word for two quantities is how a
-client ends up reporting the wrong number.
+`meta` on a snapshot carries `drive` (a wallet is connected at all — the page has no key of its
+own to ask this about), `drivable` (`driveAuthorization`: the lock the watched organism wears is
+one that wallet can satisfy, which is the same rule the click is refused by, so the button state
+and the answer cannot disagree), `as` (whose key that answer is about: `"wallet"`, or `"none"`
+when no wallet is connected — there is no `"server"` any more), `prepare` (this page can always
+build a transaction, because `flywasm` is the same `flycore` the validator runs), and
+`collisions` — the type scripts worn by more than one live cell, which should always be empty.
+See "A fly can branch" below. `count` is *transitions*, and `roster` is the organisms, because
+one word for two quantities is how a client ends up reporting the wrong number.
 
 ---
 
-## Wallets: a visitor signs, and the server does not
+## Wallets: a visitor signs, and nobody else can
 
-A page that drives a public organism by signing with the server's key is a page that needs a
-funded key on the server, and every visitor spends it. The alternative is the one this section
-describes: **the server computes what the successor is, and the visitor's own wallet pays for and
-signs it.** The move button on the page uses whichever of the two is available, and says which.
+A page that drives a public organism with a server's key is a page that needs a funded key on the
+server, and every visitor spends it. There is no such key here, so there is no such choice: **the
+page builds the transaction and the visitor's own wallet pays for and signs it.** The move button
+is greyed out when no wallet is connected, and the reason it gives is that — on this page there
+is nothing that can sign.
 
 **The connect control is at the top right of the page**, above the identity table, and that
 placement is the part of this that took a second attempt. The first version was correct and
@@ -435,19 +446,21 @@ a wrapping flex row, for a related reason: the identity table's widest row is a 
 with `word-break: break-all`, whose max-content width is enormous, and a wrapping row gives that
 width to the column and pushes the whole thing — button included — onto a line of its own.
 
-Why the split falls there, rather than moving the whole thing into the browser: the successor
-state is the output of the Rust simulation. Recomputing it in JavaScript would put a second
-implementation of the one thing this port is about on the far side of a network boundary, where
-it can disagree with the type script about what a tick produces — and the disagreement would
-arrive as a rejected transaction with no explanation. `flyplan` already answers "what does this
-action produce", so the server asks it, and the browser does only the part that needs a private
-key.
+Why the split falls there, and why it used to fall differently: the successor state is the output
+of the Rust simulation, and recomputing it in JavaScript would put a second implementation of the
+one thing this port is about on the far side of a network boundary, where it can disagree with the
+type script about what a tick produces — and the disagreement would arrive as a rejected
+transaction with no explanation. So it was the server's job, because the server could shell out
+to `flyplan`. It is the browser's job now, because `flycore` compiles to `wasm32` as
+`crates/flywasm` and `make test-wasm` compares its answers to `flyplan`'s byte for byte. Same
+crate, third target: not a second source of truth. The wallet still does only the part that needs
+a private key.
 
 ### The contract between the two halves
 
-`POST /api/prepare` returns an **unfinished** transaction — no fee inputs, no signature — and the
-page does exactly four things with it. All four are in `public/wallet.source.js`, and three of
-them are not optional:
+`createPrepare` in `public/prepare.source.js` returns an **unfinished** transaction — no fee
+inputs, no signature — and the page does exactly four things with it. All four are in
+`public/wallet.source.js`, and three of them are not optional:
 
 ```js
 const tx = ccc.Transaction.fromBytes(prepared.tx);   // ← not `from`, see below
@@ -507,11 +520,11 @@ the keeper measures, and the reason the keeper is a break-even conduit rather th
 
 Two consequences worth stating plainly:
 
-* `INDEXER_ALLOW_DRIVE` is **not** needed for any of this. The page offers the wallet path when
-  the server was started with no key at all, and the Drive note says so.
-* The wallet path is also **faster**: the server-signed path waits for the node to *commit*
-  (measured at 21–61 s), while a wallet-driven click returns as soon as the node accepts it. The
-  page's status line says which of the two is happening.
+* There is no server key to authorise any more, and no flag that would turn one on. The wallet
+  path is the only path, and the Drive panel's note says so when no wallet is connected.
+* A wallet-driven click returns as soon as the node *accepts* the transaction rather than waiting
+  for it to commit (the server-signed path used to wait, measured at 21–61 s). The page's status
+  line says what happened to the click.
 
 ### Which wallets
 
@@ -872,10 +885,10 @@ without either being wrong.
 
 ### An error that cannot clear itself
 
-The indexer's poll loop catches its own failures and puts the message in `index.error`, which
-`/api/fly` serves as `meta.error` and the page renders as "the node reported: …". That part is
-right. The clearing was not: `index.error = null` lived inside `refresh`, *after* the chain walk,
-and `refresh` returns early when the head has not moved.
+The poll loop catches its own failures and puts the message in `index.error`, which a snapshot
+serves as `meta.error` and the page renders as "the node reported: …". That part is right. The
+clearing was not: `index.error = null` lived inside `refresh`, *after* the chain walk, and
+`refresh` returns early when the head has not moved.
 
 So the only thing that could clear the message was a successful **walk** — and an idle fly never
 walks. One transient RPC failure while the watched organism happened to be sitting still left the
@@ -884,27 +897,23 @@ error that cannot clear itself is worse than no error at all, because it teaches
 ignore the field.
 
 The fix is one line in the poll loop — a poll that succeeds *without walking* is still a poll
-that succeeded — and it was verified by making a node fail on demand, since a public one will
-not: a small proxy in front of `testnet.ckb.dev` that can be told to answer 500. The sequence
+that succeeded — and it lives in `src/watch.js`, where the page's poll and the CLI's share it. It
+was verified by making a node fail on demand, since a public one will not: a small proxy in front
+of `testnet.ckb.dev` that can be told to answer 500. The sequence
 `null → "injected failure" → null → "injected failure" → null` is the whole claim, and the
 tell that it is the *right* scenario is that `meta.updatedAt` never changes across it. That is
 the idle-fly condition, and it is exactly the one that used to stick.
 
-```sh
-# deploy/flaky-rpc.mjs — the harness, kept in the repo so this stays reproducible
-node flaky-rpc.mjs &                      # forwards to testnet.ckb.dev, with a /__fail switch
-CKB_NETWORK=preview CKB_RPC_URL=http://127.0.0.1:8119 INDEXER_POLL_MS=1500 \
-  PORT=8897 node src/serve.js             # CKB_NETWORK must be explicit: a loopback RPC
-                                          # would otherwise be taken for a dev chain, and the
-                                          # inferred network decides which chain's fly is read
-curl 127.0.0.1:8119/__fail                # then /__ok, and watch meta.error in /api/fly
-```
+The property is now pinned by `test/watch.test.js` instead, which needs no node: the shape of the
+bug is reproduced as "a refresh that reads, reads, and does not walk", and a test that skipped it
+would pass against the code that shipped. The proxy harness is not in the repository any more —
+it existed to drive the indexer, and there is no indexer.
 
 ### Two call sites, two answers to one question
 
-The drive buttons are disabled for a reason the server *decides* on, and the page asks what that
-decision is. Two endpoints answer that question — `/api/fly` fills `meta.drivable`, and
-`POST /api/act` sends or refuses — and they asked it separately, with different rules:
+The drive buttons are disabled for a reason the page *decides* on, and a click is refused for the
+reason the builder decides on. Those are one question, and it used to be answered in two places —
+`/api/fly` filled `meta.drivable`, and `POST /api/act` sent or refused — with different rules:
 
 | | `/api/fly` | `POST /api/act` |
 |---|---|---|
@@ -940,13 +949,14 @@ private fly, the one case where the server demonstrably holds the key. Public `f
 had already been exempted from it, so the two rules only ever came apart on a fly whose lock the
 record cannot describe — and neither endpoint's tests covered the case where they did.
 
-What is left is `driveAuthorization`, called by both endpoints, whose only inputs are the
-organism's lock and this server's key. There is deliberately no `drivable(watched, owned)`
-exported any more: a rule that answers this question from the record is not a helper to have
-lying around, and the test asserts the name is gone rather than merely unused. "Is this the
-organism the record selects" survives as `watchingOwn` and as the roster's `key` badge — a
-reportable fact, and the record is rewritten by `genesis`, which is the last thing a refusal
-should be reading.
+What is left is `driveAuthorization`, whose only inputs are the organism's lock and the key that
+would sign. There is deliberately no `drivable(watched, owned)` exported any more: a rule that
+answers this question from the record is not a helper to have lying around, and the test asserts
+the name is gone rather than merely unused. The endpoints that used to call it from two places are
+gone too, so the page now has it easier than the server did: `meta.drivable` and the click are the
+same call on the same object, and the only key they can ever be about is the reader's wallet — a
+page that could disagree with itself about whether a button works would need a second wallet to
+do it.
 
 The shape of the mistake generalises, and it is not "the check was wrong": **a decision made in
 two places is two decisions.** `driveAuthorization` had no test of its own — the two functions

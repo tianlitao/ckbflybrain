@@ -36,7 +36,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { existsSync } from "node:fs";
 
-import { bundleExists, startStaticPage } from "./static-page.js";
+import { bundleExists, startStaticPage } from "../src/static-page.js";
 
 /**
  * Where the page comes from. `FLY_PANEL_URL` for one served somewhere else; otherwise `before`

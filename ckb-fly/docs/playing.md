@@ -48,12 +48,12 @@ can plus `deploy`, `genesis`, `resurrect` and `adopt`.
 ```sh
 cd deploy
 npm run serve                          # http://127.0.0.1:8899 — watch, and read
-INDEXER_ALLOW_DRIVE=1 npm run serve    # …and let the page move the fly with the server's key
 ```
 
-`INDEXER_ALLOW_DRIVE=1` means **every visitor spends the server's key**. It is off by default
-for that reason. A reader with their own wallet does not need it: the wallet path is always
-served.
+`npm run serve` is a static file server and nothing more: the page reads the chain itself and
+builds its own transactions, so there is no server key to expose and no flag to turn one on. To
+*move* the fly from the page, connect a wallet in the Drive panel — you pay, you sign, and the
+page never sees your key.
 
 ---
 
@@ -462,8 +462,7 @@ The honest list, because most of these are deliberate:
 
 ```sh
 # the page
-npm run serve                              # watch
-INDEXER_ALLOW_DRIVE=1 npm run serve        # watch and drive with the server's key
+npm run serve                              # watch; connect a wallet to drive
 
 # the CLI
 node src/cli.js status

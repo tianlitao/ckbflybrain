@@ -485,6 +485,48 @@ export const action = {
   },
 
   /**
+   * Encode an action described as a spec, in the shape `tx.js` asks an oracle for.
+   *
+   * `plan.action` — the CLI's oracle — hands the spec to `flyplan action`, which encodes it and
+   * range-checks it with the contract's own parser before returning. The page has no `flyplan`,
+   * so this is the browser's answer to the same question, and it has to keep both halves of
+   * that promise:
+   *
+   * * it **dispatches on `kind`**, because a page builds an action from a button and a number,
+   *   not by calling `tick` by name; and
+   * * it **decodes what it just encoded**, so an impossible click fails in the builder with the
+   *   contract's own reason (`BadSteps`, `BadStimulus`, `ZeroAmount`) instead of becoming a
+   *   transaction the type script rejects on chain — which a reader would experience as a
+   *   wallet that took their money and did nothing.
+   *
+   * The four encoders above are pinned against `flyplan` by `test/golden.test.js`; this
+   * dispatcher is pinned against all four of them at once, and there is no second copy of the
+   * encoding for the two to disagree about.
+   *
+   * @param {{kind: string, steps?: number, channel?: number, param?: number,
+   *          strength?: number, bornBlock?: number}} spec
+   * @param {{maxSteps: number}} params
+   * @returns {{action: string}} the encoded action, as hex
+   */
+  encode(spec, params) {
+    const raw =
+      spec.kind === "tick"
+        ? action.tick(spec.steps)
+        : spec.kind === "stimulate"
+          ? action.stimulate(spec.channel, spec.param, spec.strength, spec.steps)
+          : spec.kind === "feed"
+            ? action.feed(spec.steps)
+            : spec.kind === "resurrect"
+              ? action.resurrect(spec.steps, spec.bornBlock)
+              : null;
+    if (!raw) {
+      throw new Error(`action: no encoding for kind ${JSON.stringify(spec.kind)}`);
+    }
+    action.decode(raw, params); // refuses exactly what the contract refuses
+    return { action: ccc.hexFrom(raw) };
+  },
+
+  /**
    * Parse and validate a witness action, mirroring `flycore::Action::decode`.
    *
    * A history entry that shows an action is showing one the fly accepted: the action in the

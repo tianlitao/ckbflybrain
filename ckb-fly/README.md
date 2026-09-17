@@ -91,10 +91,11 @@ contracts/flybrain    the type script that guards the state cell
 contracts/flylock     the lock the state cell wears
 contracts/flyworld    the chronicle: a record that has to look at the fly to write it
 tests                 ckb-testtool integration suite (runs the real RISC-V binaries)
-deploy                the chain half: build, sign, send, index, and serve the front-end
+deploy                the chain half: build, sign, send, and the front-end
   src/cli.js          deploy, drive, and recover the fly's history
   src/history.js      the event layer: a life, read back out of the chain
-  src/serve.js        the indexer, kept for the keeper; the page does not call it
+  src/keeper.js       keeps the fly alive without a human in the loop
+  src/static-page.js  serves public/ for local development; a real host is a static one
   public/             the front-end: the ring, the heading, the walk
 scripts/gen_fixture.py regenerates the mainnet differential fixture
 ```
@@ -911,7 +912,7 @@ If you want to run it:
 7. `crates/flyplan/src/main.rs` — the oracle the transaction builder asks
 8. `deploy/src/cli.js` — the chain half: build, sign, send, record
 9. `deploy/src/history.js` — how a life is read back out of the chain
-10. `deploy/src/serve.js` — the indexer, which the page no longer needs
+10. `deploy/public/chain.source.js` — the index, which the page now keeps for itself
 11. `deploy/public/app.js` — what is drawn, and why those three things
 12. `deploy/test/golden.test.js` — how the JavaScript mirror is kept honest
 

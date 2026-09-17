@@ -246,6 +246,39 @@ describe("actions", () => {
   it("feed", () => assert.equal(hex(action.feed(10_000)), g.actions.feed10000));
   it("resurrect", () =>
     assert.equal(hex(action.resurrect(1_000, 42)), g.actions.resurrect1000));
+
+  it("encodes from a spec, which is what an oracle is asked for", () => {
+    // `oracle.action(spec)` is the page's stand-in for `flyplan action`; see sim.source.js. It
+    // is one dispatcher over the four encoders above, and it has to agree with every one of
+    // them — the four tests directly above pin the encoders, this pins the dispatch.
+    const specs = [
+      [{ kind: "tick", steps: 64 }, g.actions.tick64],
+      [{ kind: "stimulate", channel: 1, param: 4, strength: 4, steps: 32 }, g.actions.stimulateCue4],
+      [{ kind: "feed", steps: 10_000 }, g.actions.feed10000],
+      [{ kind: "resurrect", steps: 1_000, bornBlock: 42 }, g.actions.resurrect1000],
+    ];
+    for (const [spec, want] of specs) {
+      assert.equal(action.encode(spec, PARAMS_V1).action, want, spec.kind);
+    }
+  });
+
+  it("refuses a spec the contract would refuse, before a transaction is built", () => {
+    // `flyplan action` range-checks before it returns, so the page's builder has to as well:
+    // otherwise an impossible click becomes a signed, paid-for transaction that the type
+    // script rejects, which reads to the person who paid as "nothing happened".
+    const refused = [
+      [{ kind: "tick", steps: 0 }, /BadSteps/],
+      [{ kind: "tick", steps: PARAMS_V1.maxSteps + 1 }, /BadSteps/],
+      [{ kind: "stimulate", channel: 0, param: 0, strength: 1, steps: 1 }, /BadStimulus/],
+      [{ kind: "stimulate", channel: 1, param: WEDGES, strength: 1, steps: 1 }, /BadStimulus/],
+      [{ kind: "feed", steps: 0 }, /ZeroAmount/],
+      [{ kind: "resurrect", steps: 0, bornBlock: 1 }, /ZeroAmount/],
+      [{ kind: "nudge", steps: 1 }, /no encoding for kind/],
+    ];
+    for (const [spec, pattern] of refused) {
+      assert.throws(() => action.encode(spec, PARAMS_V1), pattern, JSON.stringify(spec));
+    }
+  });
 });
 
 describe("genesis", () => {

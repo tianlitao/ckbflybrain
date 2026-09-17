@@ -34,8 +34,8 @@ import { WebComponentConnector } from "@ckb-ccc/connector";
 import { CLOSED, closeConnector, openConnector, settledSigner, watchConnector } from "./connector.source.js";
 import { appIcon, createWallet } from "./wallet.source.js";
 import { createFeed } from "./chain.source.js";
-import { loadSim, oracleFor } from "./sim.source.js";
-import { buildAction } from "../src/tx.js";
+import { loadSim } from "./sim.source.js";
+import { createPrepare } from "./prepare.source.js";
 import { decodeState } from "../src/fly.js";
 import { toCanvas, wedgeAngle } from "./geometry.source.js";
 import {
@@ -63,6 +63,7 @@ let connectorWatch = null; // the handle that lets this page close it without be
 let walletPick = 0; // which of the offered signers the reader chose
 let feed = null; // the page's own index of the chain: see chain.source.js
 let sim = null; // the dynamics, in wasm: see sim.source.js
+let prepare = null; // the page's half of a click: see prepare.source.js
 let poll = null; // the timer that replaces the server's event stream
 
 // ------------------------------------------------------------------ reading
@@ -964,40 +965,6 @@ async function syncWalletLock() {
   feed.setWalletLock(wallet ? await wallet.lock() : null);
 }
 
-/**
- * Build the transaction for one action, in the page.
- *
- * This is the whole of what used to be `POST /api/prepare`, and it is four lines because the
- * work is in `src/tx.js` — the same builder the CLI uses. The differences are the oracle
- * (`oracleFor(sim, …)`, which is `flywasm`, where the CLI passes `flyplan`) and where the two
- * cells come from: read from the chain at the moment of the click rather than from the roster,
- * because the roster is a picture and a spent out point is not a stale picture, it is a
- * rejected transaction.
- *
- * The chronicle's type script is built from the watched fly's type hash rather than taken from
- * the deployment record. The record's `world` names *the deployer's* chronicle; this page can be
- * watching a different organism, and a chronicle belongs to exactly one fly.
- */
-async function prepare(spec) {
-  const flyCell = await feed.spendable();
-  const worldCell = await feed.chronicleCell();
-  const identity = snap.identity;
-
-  return buildAction(spec, {
-    deployment: {
-      params: identity.params,
-      economics: identity.economics,
-      codeCells: identity.codeCells,
-      fly: { typeScript: identity.typeScript, lockScript: identity.lockScript },
-      world: worldCell ? { typeScript: ccc.Script.from(worldCell.cellOutput.type) } : null,
-    },
-    signerLock: feed.walletLock(),
-    oracle: oracleFor(sim, identity),
-    flyCell,
-    worldCell,
-  });
-}
-
 function renderDrive() {
   const target = document.getElementById("drive");
   const note = document.getElementById("drive-note");
@@ -1232,6 +1199,8 @@ onLanguage(() => {
  *    — and because `createFeed` checks that connectome against the one the fly's type script
  *    says it runs before it will produce a picture at all.
  * 3. **The feed**, which reads the chain.
+ * 4. **The builder**, `createPrepare({ feed, sim })`, which is the page's half of a click. It is
+ *    created here rather than at module scope because it needs the other three to exist.
  *
  * A failure in any of them leaves the page with nothing to draw, so it is reported in the
  * footer and the poll never starts — a page that retried forever against a missing file would
@@ -1241,6 +1210,7 @@ async function start() {
   const config = await loadConfig();
   sim = await loadSim();
   feed = createFeed({ config, table: sim.circuitTable(), pollMs: POLL_MS });
+  prepare = createPrepare({ feed, sim });
 
   await loadSnapshot();
   setStatus(

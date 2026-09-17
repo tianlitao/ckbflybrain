@@ -1,10 +1,9 @@
 /**
  * The browser's driving path, end to end, against a real chain.
  *
- * `wallet.source.js` is what a visitor's click runs: ask the server for an unsigned transaction,
- * pay the fee from the visitor's own coins, sign, and send. Every unit test in this directory
- * stops at the server's half of that — `POST /api/prepare` — because the rest needs a signer, a
- * funded address, and a chain to land on.
+ * `wallet.source.js` is what a visitor's click runs: build the transaction, pay the fee from the
+ * visitor's own coins, sign, and send. Every unit test in this directory stops short of a signer,
+ * a funded address and a chain to land on, so this is the only place the whole path runs.
  *
  * JoyID's passkey ceremony is the one part a machine cannot perform. Everything *after* it is the
  * same code for every signer, because CCC's `Signer` interface is what JoyID and a private key
@@ -18,14 +17,24 @@
  *     hex string into an *empty* transaction.
  *   * the broadcast, and the chain actually showing the transition.
  *
+ * # Why the harness imports the page's own builder
+ *
+ * There is no server to ask any more, so a click has two halves: the page's, which builds the
+ * transaction, and the wallet's, which pays and signs. A test that wrote its own builder to
+ * exercise the second would be a second implementation of the first — and it would be exercised
+ * by a test that spends real testnet CKB, so it would be *proven correct* right up to the moment
+ * it drifted from the page's. `createPrepare` in `public/prepare.source.js` is the page's half
+ * for exactly that reason, and this harness imports it rather than copying it.
+ *
  * It spends real testnet CKB and advances a public fly, so it is opt-in: set `FLY_DRIVE_LIVE=1`.
  * Without it the test skips, the same way the Rust integration suite skips without
  * `FLY_REQUIRE_CONTRACT`.
  *
  *     FLY_DRIVE_LIVE=1 node --test test/drive-live.test.js
  *
- * Environment: `FLY_DRIVE_URL` (default `http://127.0.0.1:8898/`), `FLY_VISITOR_KEY_FILE`
- * (default `.key.visitor`), `FLY_DRIVE_RPC` (default the preview testnet).
+ * Environment: `FLY_VISITOR_KEY_FILE` (default `.key.visitor`). The chain is the one
+ * `public/deployment.json` names, so the wallet and the feed cannot be pointed at two different
+ * networks — which is also how the page does it.
  */
 
 import assert from "node:assert/strict";
@@ -35,13 +44,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 
+import { bundleExists, startStaticPage } from "../src/static-page.js";
+
 /** `deploy/`, so esbuild finds both the source and the installed packages. */
 const DEPLOY = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const PAGE = process.env.FLY_DRIVE_URL ?? "http://127.0.0.1:8898/";
-const RPC = process.env.FLY_DRIVE_RPC ?? "https://testnet.ckb.dev/rpc";
-const KEY_FILE =
-  process.env.FLY_VISITOR_KEY_FILE ?? join(process.cwd(), ".key.visitor");
+const KEY_FILE = process.env.FLY_VISITOR_KEY_FILE ?? join(process.cwd(), ".key.visitor");
 
 /** Playwright lives outside this project, so its absence is a skip rather than a failure. */
 const PLAYWRIGHT = "/Users/mac/node_modules/playwright-core/index.mjs";
@@ -51,6 +59,11 @@ const PLAYWRIGHT = "/Users/mac/node_modules/playwright-core/index.mjs";
  *
  * Collected rather than thrown one at a time: a reader who has none of the prerequisites should
  * see the whole list in one line, not discover them one run at a time.
+ *
+ * The chain is *not* probed from here. Whether this process can reach it depends on how the
+ * machine is connected, and a skip that says "the chain is unreachable" when the chain is fine
+ * is worse than no probe at all. The browser, which is launched with `--proxy-server`, is what
+ * has to answer that question, so it is asked below by waiting for the identity panel to fill.
  */
 async function unavailable() {
   if (!process.env.FLY_DRIVE_LIVE) {
@@ -58,22 +71,12 @@ async function unavailable() {
   }
   if (!existsSync(PLAYWRIGHT)) return `playwright-core is not at ${PLAYWRIGHT}`;
   if (!existsSync(KEY_FILE)) return `no visitor key at ${KEY_FILE}`;
-
-  try {
-    const res = await fetch(new URL("/api/fly", PAGE), { signal: AbortSignal.timeout(5000) });
-    const snap = await res.json();
-    if (!snap.meta?.drivable) return `the indexer at ${PAGE} is not offering a drivable fly`;
-    if (snap.meta?.as === "server" && !snap.meta?.drive) {
-      return `the indexer at ${PAGE} has driving disabled`;
-    }
-  } catch (err) {
-    return `no indexer at ${PAGE} (${err.message})`;
-  }
+  if (!bundleExists()) return "public/app.js is missing; run `cd .. && make build-front-end`";
   return null;
 }
 
 /**
- * Bundle `wallet.source.js` for the browser.
+ * Bundle the page's own driving path for the browser.
  *
  * It imports `@ckb-ccc/joy-id`, which touches `window` at module scope, so it cannot be imported
  * from Node at all — bundling is the only way to exercise the real module rather than a copy of
@@ -83,6 +86,7 @@ async function unavailable() {
  */
 async function buildHarness(esbuild) {
   const entry = join(tmpdir(), `fly-harness-entry-${process.pid}.js`);
+  const pub = (name) => JSON.stringify(join(DEPLOY, "public", name));
   writeFileSync(
     entry,
     [
@@ -94,8 +98,11 @@ async function buildHarness(esbuild) {
       // here is the only way to get a signer from that other copy without installing it twice by
       // hand, and the second test below is what makes the mismatch visible.
       'import * as connectorCcc from "@ckb-ccc/ccc";',
-      `import { createWallet } from ${JSON.stringify(join(DEPLOY, "public", "wallet.source.js"))};`,
-      "globalThis.__flyTest = { ccc, connectorCcc, createWallet };",
+      `import { createWallet } from ${pub("wallet.source.js")};`,
+      `import { createFeed } from ${pub("chain.source.js")};`,
+      `import { createPrepare } from ${pub("prepare.source.js")};`,
+      `import { loadSim } from ${pub("sim.source.js")};`,
+      "globalThis.__flyTest = { ccc, connectorCcc, createWallet, createFeed, createPrepare, loadSim };",
     ].join("\n"),
   );
 
@@ -124,11 +131,11 @@ function chromiumPath() {
 
 describe("driving the fly from the browser", () => {
   /**
-   * One click of "tick 64", through the real page, with a signer from the named copy of core.
+   * One click of "tick 64", through the page's own builder, with a signer from the named core.
    *
-   * The whole reason this is a browser test is the page's own code: `wallet.drive()` fetches a
-   * relative URL, so it has to run on the indexer's origin, and it is the code a visitor's click
-   * runs rather than a re-implementation of it.
+   * The whole reason this is a browser test is the page's own code: `feed` reads the chain with
+   * `fetch`, `loadSim` streams a wasm module, and both need an origin that serves them. It is
+   * also the code a visitor's click runs rather than a re-implementation of it.
    *
    * @param {"ours"|"connectors"} whichCore `ours` is this page's core 1.21.0; `connectors` is the
    *   nested 1.19.1 that `@ckb-ccc/connector` builds its wallet adapters on.
@@ -137,6 +144,9 @@ describe("driving the fly from the browser", () => {
     const { chromium } = await import(PLAYWRIGHT);
     const esbuild = await import("esbuild");
     const harness = await buildHarness(esbuild);
+
+    const served = await startStaticPage();
+    assert.ok(served, "the page could not be served; run `cd .. && make build-front-end`");
 
     const browser = await chromium.launch({
       headless: true,
@@ -154,30 +164,51 @@ describe("driving the fly from the browser", () => {
         if (m.type() === "error") failures.push(m.text());
       });
 
-      // The real page, because `drive()` fetches a relative URL and has to share an origin with
-      // the indexer. `networkidle` never fires — the page holds an SSE connection open — so wait
-      // for something the app renders instead.
-      await page.goto(PAGE, { waitUntil: "domcontentloaded", timeout: 45000 });
+      await page.goto(served.url, { waitUntil: "domcontentloaded", timeout: 45000 });
+      // The identity panel only fills once the page has read the chain, so this is also the
+      // answer to "is the chain reachable from this browser".
       await page.waitForFunction(() => document.querySelector("#identity")?.children.length > 0, {
         timeout: 30000,
       });
 
-      const before = await page.evaluate(() =>
-        fetch("/api/fly")
-          .then((r) => r.json())
-          .then((d) => ({
-            typeHash: d.watching,
-            step: BigInt(d.current.state.step),
-            energy: BigInt(d.current.state.energy),
-          })),
-      );
-
       await page.addScriptTag({ content: harness });
       const key = readFileSync(KEY_FILE, "utf8").trim();
 
+      /**
+       * Stand up the same three things `app.source.js` stands up, in the same order: the config,
+       * the dynamics, the feed. Kept on `globalThis` because the next `evaluate` needs them and
+       * a browser context is the only place they can live.
+       */
+      const before = await page.evaluate(async () => {
+        const { createFeed, loadSim } = globalThis.__flyTest;
+        const config = await fetch("./deployment.json").then((r) => r.json());
+        const sim = await loadSim({ url: new URL("./flywasm.wasm", location.href) });
+        const feed = createFeed({ config, table: sim.circuitTable() });
+        await feed.refresh();
+
+        globalThis.__feed = feed;
+        globalThis.__sim = sim;
+
+        const snap = feed.snapshot();
+        if (!snap.current) {
+          return { error: snap.meta.error ?? `the feed read no transition from ${config.network}` };
+        }
+        // Strings, not bigints: a bigint cannot cross back out of `evaluate`.
+        return {
+          typeHash: feed.watching(),
+          step: String(snap.current.state.step),
+          energy: String(snap.current.state.energy),
+        };
+      });
+
+      assert.equal(before.error, undefined, `the page's feed could not read the chain: ${before.error}`);
+
       const result = await page.evaluate(
-        async ({ key, rpc, whichCore }) => {
-          const { ccc, connectorCcc, createWallet } = globalThis.__flyTest;
+        async ({ key, whichCore }) => {
+          const { ccc, connectorCcc, createWallet, createPrepare } = globalThis.__flyTest;
+          const feed = globalThis.__feed;
+          const sim = globalThis.__sim;
+          const rpc = feed.rpc;
           const wallet = createWallet(rpc);
           // The private key stands in for the passkey a human would tap. Everything after it —
           // `completeFeeBy`, the action in witness 0, the sign, the broadcast — is the same code
@@ -189,40 +220,46 @@ describe("driving the fly from the browser", () => {
           // that skips `signer.connect()` because the connector already did it.
           await wallet.adopt({ name: whichCore, signer });
           try {
-            const out = await wallet.drive({ kind: "tick", steps: 64 });
+            // The page's half. Not written here: see the module doc.
+            const out = await wallet.drive(
+              { kind: "tick", steps: 64 },
+              { prepare: createPrepare({ feed, sim }) },
+            );
             return { ok: true, address: wallet.address(), txHash: out.txHash };
           } catch (err) {
             return { ok: false, error: String(err?.message ?? err) };
           }
         },
-        { key, rpc: RPC, whichCore },
+        { key, whichCore },
       );
 
       assert.ok(result.ok, `drive() failed: ${result.error}`);
       assert.match(result.txHash, /^0x[0-9a-f]{64}$/, "a transaction hash came back");
       assert.equal(failures.length, 0, `the page logged errors: ${failures.join("; ")}`);
 
-      // The transition has to appear on chain, not merely be accepted by the node. The indexer
-      // walks the fly's chain of state cells, so seeing it there is seeing the real thing.
+      // The transition has to appear on chain, not merely be accepted by the node. The feed walks
+      // the fly's chain of state cells, so seeing it there is seeing the real thing.
       let after = before;
       for (let i = 0; i < 20 && after.step === before.step; i++) {
         await new Promise((r) => setTimeout(r, 3000));
-        after = await page.evaluate(() =>
-          fetch("/api/fly")
-            .then((r) => r.json())
-            .then((d) => ({
-              typeHash: d.watching,
-              step: BigInt(d.current.state.step),
-              energy: BigInt(d.current.state.energy),
-            })),
-        );
+        after = await page.evaluate(async () => {
+          const feed = globalThis.__feed;
+          await feed.refresh();
+          const snap = feed.snapshot();
+          return {
+            typeHash: feed.watching(),
+            step: String(snap.current?.state?.step ?? -1),
+            energy: String(snap.current?.state?.energy ?? -1),
+          };
+        });
       }
 
       assert.equal(after.typeHash, before.typeHash, "the same organism");
-      assert.equal(after.step, before.step + 64n, "the fly advanced exactly 64 steps");
-      assert.equal(after.energy, before.energy - 64n, "and spent exactly 64 steps of life");
+      assert.equal(BigInt(after.step), BigInt(before.step) + 64n, "the fly advanced exactly 64 steps");
+      assert.equal(BigInt(after.energy), BigInt(before.energy) - 64n, "and spent exactly 64 steps of life");
     } finally {
       await browser.close();
+      await served.close();
     }
   }
 

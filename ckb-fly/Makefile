@@ -128,7 +128,7 @@ test-deploy: plan
 	cd deploy && npm test
 
 # Bundle the browser entry point. The source remains in deploy/public/app.source.js; the
-# generated public/app.js is what serve.js sends. This target deliberately does not add a
+# generated public/app.js is what a static host sends. This target deliberately does not add a
 # wallet: it makes the later UTXO Global/JoyID choice a one-line import rather than an import-map
 # rewrite, while keeping today's page dependency-free at runtime.
 #
@@ -156,6 +156,13 @@ build-front-end: wasm
 # accident either.
 publish-config:
 	cd deploy && node emit-public-config.mjs
+
+# Is `deploy/public/` fit to upload? The checks that used to live in `serve-public.sh`, moved
+# ahead of the upload: a static host accepts every file it is given, so a deployment that is
+# broken in one of these two ways is accepted and then reads nothing in a reader's browser.
+# Refuses a dev chain in deployment.json, and the two build products that are not in git.
+check-public:
+	cd deploy && node check-public.mjs
 
 # Read-only rehearsal of the one part of a real deployment that a dev chain never
 # exercises. `makeClient` borrows CCC's published testnet script table on every network,
@@ -189,4 +196,4 @@ clean:
 checksum: build
 	shasum -a 256 $(BUILD_DIR)/* | tee $(BUILD_DIR)/../checksums-$(MODE).txt
 
-.PHONY: default test test-integration test-all build check clippy fmt prepare clean checksum plan test-deploy build-front-end publish-config preflight-testnet
+.PHONY: default test test-integration test-all build check clippy fmt prepare clean checksum plan test-deploy build-front-end publish-config check-public preflight-testnet

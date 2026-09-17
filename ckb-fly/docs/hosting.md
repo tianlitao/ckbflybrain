@@ -32,8 +32,10 @@ Two things made it possible:
   recovered by walking backwards and reading each transaction's witness — but a walk is just
   repeated `get_transaction`, and a browser can do that.
 
-`src/serve.js` still exists and still works, but the page does not call it. See "the server, if
-you still want one" at the end.
+The indexer that used to sit between the page and the chain is gone — deleted, not merely
+disused. Nothing in this repository serves the page except a directory of files, and the two
+things that used to need a running process are now `make check-public` (a pre-upload check, see
+below) and the reader's own browser.
 
 ---
 
@@ -168,13 +170,20 @@ Named rather than left to be discovered:
 
 ---
 
-## The server, if you still want one
+## Checking `public/` before you upload it
 
-`deploy/src/serve.js` and `deploy/serve-public.sh` are still there, still tested, and still run
-the indexer-and-page configuration the previous version of this document described. The page does
-not call any of their endpoints any more; they are kept because the indexer's other jobs — the
-`keeper`, and `node src/cli.js status` against a long-lived index — still have uses.
+Uploading a directory cannot fail: the host accepts every file, and the bill is paid by a reader
+whose browser opens a page that loads and then reads nothing. So the two checks that used to run
+when the indexer started — it refused to boot without a bundle, and without a chain that was not
+a dev chain — now run before the upload instead:
 
-If you run it, the one warning that has not changed: **do not set `INDEXER_ALLOW_DRIVE=1` on a
-public host.** That exposes `POST /api/act`, which signs with the server's key, and nothing in
-that server rate-limits anything.
+```sh
+cd ckb-fly && make check-public
+```
+
+It refuses a `deployment.json` naming a loopback address, and missing `app.js` / `flywasm.wasm`,
+and each refusal names the command that fixes it. `indexer` is not one of its complaints,
+because there is no longer anything to keep alive.
+
+The `keeper` is also not part of hosting: it is a standalone process (`node src/keeper.js`) that
+talks to the chain directly and has never needed the page's host.

@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "version": "0.1.0",
-  "description": "Deploys, drives, indexes and shows the CKB Fly organism",
+  "description": "Deploys, drives and shows the CKB Fly organism",
   "scripts": {
     "plan": "node src/cli.js plan",
     "history": "node src/cli.js history",
-    "serve": "node src/serve.js",
+    "serve": "node src/static-page.js",
+    "check-public": "node check-public.mjs",
     "keeper": "node src/keeper.js",
     "build:front-end": "node build.mjs",
     "test": "node --test"
