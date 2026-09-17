@@ -177,7 +177,49 @@ what makes a redeployment take effect.
 
 ---
 
+## Deploying on push
+
+`.github/workflows/deploy.yml` at the repository root does the same four steps on every push to
+`main` that touches the page or the crates it is built from: install the pinned toolchain, install
+`deploy/node_modules`, `make test-deploy`, `make build-front-end`, `make check-public`, upload.
+
+**Two repository secrets, and the workflow is honest about not having them.** With
+`CLOUDFLARE_API_TOKEN` set it uploads; without it, it builds and checks, prints a warning, and
+finishes green — so the file can be committed before the secrets exist without leaving a red mark
+on every push. The token is a *token*, not the OAuth session `wrangler login` creates: a login is
+a person, and CI is not one.
+
+| secret | value | scope |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | a token from the dashboard | Account → **Cloudflare Pages → Edit** (nothing else; leaking it then cannot touch the rest of the account) |
+| `CLOUDFLARE_ACCOUNT_ID` | `845ccad0c323e0bab45594bfaaf52644` | not a secret, kept beside the other one because they are used together |
+
+Add them under **Settings → Secrets and variables → Actions → New repository secret**. The
+workflow can then also be run by hand from the **Actions** tab (`workflow_dispatch`), which is what
+a redeployment without a commit is.
+
+**Why Actions rather than Pages' own Git integration.** Pages can build on push itself and that
+would be one fewer thing to keep alive, but it cannot build *this*: the bundle embeds
+`crates/flywasm`, which is Rust compiled for `wasm32-unknown-unknown`, and Pages' build image has no
+Rust toolchain. Installing the pinned one inside a Pages build means downloading it plus a wasm
+target on every push, with no cache, in an environment we cannot see. Actions runs the same
+`make build-front-end` the instructions above use, with a cargo cache, and it runs `make
+check-public` first.
+
+Two things are deliberately *not* in CI:
+
+- **`make publish-config`.** `public/deployment.json` is in git, and it is generated from the
+  deployment record — which is not, because it names out points that exist on one chain. Running
+  `publish-config` in CI would need that record as a secret to reproduce a file that is already
+  committed. It stays a deliberate, local step: you are publishing a *particular* deployment, not
+  whatever the build happens to find.
+- **The contracts.** The page does not contain them. Only `flywasm` is built, which is the same
+  `flycore` the contracts use — so a change to a contract's Rust is noticed by the `paths` filter
+  and rebuilt, but the RISC-V binaries are not.
+
 ## What this does not give you
+
+
 
 Named rather than left to be discovered:
 

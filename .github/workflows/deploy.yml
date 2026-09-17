@@ -1,0 +1,129 @@
+# Deploy `ckb-fly/deploy/public` to Cloudflare Pages on every push to `main`.
+#
+# The site is a directory of files, so the whole job is: build them, check them, upload them.
+# Two of those three are worth a paragraph each.
+#
+# **Why Actions rather than Pages' own Git integration.** Pages can build on push itself, and that
+# is one fewer thing to keep alive. It cannot build *this*: the page's bundle embeds
+# `crates/flywasm`, which is Rust compiled for wasm32, and Pages' build image has no Rust
+# toolchain. Installing one inside a Pages build would mean downloading the pinned 1.98.1 toolchain
+# plus a wasm target on every push, with no cache, in a build environment we cannot see. Actions
+# runs the same `make build-front-end` the deploy instructions use, with caching, and it runs
+# `make check-public` first — the check that refuses to publish a dev chain or a missing bundle.
+#
+# **What this needs from the repository.** Two settings, and the workflow says so loudly and skips
+# rather than failing when they are absent:
+#
+#   CLOUDFLARE_API_TOKEN    Account → Cloudflare Pages → Edit
+#   CLOUDFLARE_ACCOUNT_ID   845ccad0c323e0bab45594bfaaf52644
+#
+# A token, not the OAuth session `wrangler login` creates: a login is a person, and CI is not one.
+# The token is scoped to Pages so that leaking it cannot touch anything else in the account.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    # Only the things the page is built from. A commit that touches the contracts or the docs
+    # should not rebuild and re-upload a site that cannot have changed — and `main` here is the
+    # whole workspace, most of which has nothing to do with the page.
+    paths:
+      - "ckb-fly/deploy/**"
+      - "ckb-fly/crates/flywasm/**"
+      - "ckb-fly/crates/flycore/**"
+      - "ckb-fly/crates/flycircuit/**"
+      - "ckb-fly/Makefile"
+      - "ckb-fly/Cargo.toml"
+      - "ckb-fly/Cargo.lock"
+      - "ckb-fly/rust-toolchain.toml"
+      - ".github/workflows/deploy.yml"
+  # So a deployment can be made without a commit, which is what a redeployment is.
+  workflow_dispatch:
+
+# One deployment at a time, and a push during a build wins — the older build's output is
+# superseded by definition.
+concurrency:
+  group: deploy-pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ckb-fly/deploy/package-lock.json
+
+      # The toolchain is pinned by `ckb-fly/rust-toolchain.toml`, and that pin is a correctness
+      # requirement rather than a convenience: a contract's code hash is part of its on-chain
+      # identity. `flywasm` is the same crate the contracts use, so the wasm module the page runs
+      # is built by the version the deployment was built with.
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+
+      # Deliberately not in `rust-toolchain.toml` — see the comment there. Every step that needs
+      # it says so, which is why this is a step.
+      - name: Add the wasm target
+        run: rustup target add wasm32-unknown-unknown --toolchain 1.98.1
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ckb-fly/target
+          key: cargo-wasm-${{ runner.os }}-${{ hashFiles('ckb-fly/Cargo.lock') }}
+          restore-keys: cargo-wasm-${{ runner.os }}-
+
+      - name: Install the deployer's dependencies
+        run: npm ci --prefix ckb-fly/deploy
+
+      # The gate. `check-public` refuses a `deployment.json` that names a dev chain and a missing
+      # `app.js`, `pages.js` or `flywasm.wasm` — the three ways this site can be broken without any
+      # upload failing. `test-deploy` is the encoder pins plus the page's own rules; the suites that
+      # need a browser or a chain skip themselves here, because playwright is not installed on the
+      # runner, which is the same way they skip on a laptop that has no wallet.
+      # Every `make` is `-C ckb-fly`: this repository is the whole workspace, and the Makefile
+      # that drives the build is the one in the project's own directory.
+      - name: Test
+        run: make -C ckb-fly test-deploy
+
+      - name: Build the front end
+        run: make -C ckb-fly build-front-end
+
+      - name: Check what is about to be published
+        run: make -C ckb-fly check-public
+
+      # `publish-config` is deliberately not run here. `public/deployment.json` is in git — it is
+      # the one static input the page reads, and it is generated from the deployment record, which
+      # is *not* in git (it names out points that exist on one chain). Regenerating it in CI would
+      # need that record as a secret, and the file it produces is already committed.
+      - name: Is Cloudflare configured?
+        id: cf
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "set=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "set=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Not deployed::CLOUDFLARE_API_TOKEN is not set, so the site was built and checked but not uploaded. Add it under Settings → Secrets and variables → Actions; docs/hosting.md names the scopes."
+          fi
+
+      - if: steps.cf.outputs.set == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: ckb-fly
+          command: pages deploy deploy/public --project-name=ckb-fly --branch=main
