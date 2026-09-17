@@ -18,6 +18,7 @@
  */
 
 import { createWallet } from "./wallet.source.js";
+import { toCanvas, wedgeAngle } from "./geometry.source.js";
 import {
   applyLanguage,
   initLanguage,
@@ -111,6 +112,7 @@ function subscribe() {
 
 // ------------------------------------------------------------------ layout
 
+
 /**
  * Where each neuron sits.
  *
@@ -122,7 +124,6 @@ function subscribe() {
 function placeNeurons(circuit) {
   const { layout, wedges } = circuit;
   const TAU = Math.PI * 2;
-  const start = -Math.PI / 2;
 
   const outer = [];
   const byWedge = Array.from({ length: wedges }, () => []);
@@ -140,7 +141,8 @@ function placeNeurons(circuit) {
   });
 
   byWedge.forEach((members, wedge) => {
-    const base = start + (wedge / wedges) * TAU;
+    // The wedge's *centre*, so a bump here and the arrow drawn for it agree — see `geometry`.
+    const base = wedgeAngle(wedge, wedges);
     members.forEach((index, k) => {
       // A wedge's neurons fan out inside its own arc rather than stacking on one radius,
       // which is what makes the ring read as sixteen groups instead of one circle.
@@ -154,7 +156,10 @@ function placeNeurons(circuit) {
   innerTypes.forEach((type, ring) => {
     const members = byType.get(type);
     members.forEach((index, k) => {
-      inner.push({ index, angle: start + (k / members.length) * TAU, ring: ring + 1 });
+      // These cells have no wedge, so their angle carries no meaning and they are simply spread
+      // evenly. Starting from the same phase as the outer ring keeps the two concentric with each
+      // other rather than half a group out.
+      inner.push({ index, angle: wedgeAngle(0, wedges) + (k / members.length) * TAU, ring: ring + 1 });
     });
   });
 
@@ -224,7 +229,10 @@ function drawRing(now) {
   const hist = state?.headingHist ?? [];
   const maxHist = Math.max(1, ...hist);
   for (let w = 0; w < placed.wedges; w++) {
-    const base = -Math.PI / 2 + (w / placed.wedges) * Math.PI * 2;
+    // `wedgeAngle`, so each arc sits exactly outside the wedge whose memory it is. This was the
+    // third copy of the convention and the one furthest from the other two — it drew the histogram
+    // half a wedge out of step with the neurons it brackets.
+    const base = wedgeAngle(w, placed.wedges);
     const half = Math.PI / placed.wedges;
     const reach = (26 + (hist[w] / maxHist) * 34) * scale;
     ctx.beginPath();
@@ -285,17 +293,17 @@ function drawRing(now) {
   const magnitude = Math.hypot(hx, hy);
   if (magnitude > 1) {
     const length = Math.min(1, magnitude / 14000) * R * 0.92;
-    const ux = hx / magnitude;
-    const uy = hy / magnitude;
+    // Through `toCanvas`, so the arrow lands on the wedge the bump is actually in.
+    const dir = toCanvas(hx / magnitude, hy / magnitude);
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + ux * length, cy + uy * length);
+    ctx.lineTo(cx + dir.x * length, cy + dir.y * length);
     ctx.strokeStyle = "#111";
     ctx.lineWidth = 3 * scale;
     ctx.lineCap = "round";
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(cx + ux * length, cy + uy * length, 5 * scale, 0, Math.PI * 2);
+    ctx.arc(cx + dir.x * length, cy + dir.y * length, 5 * scale, 0, Math.PI * 2);
     ctx.fillStyle = "#111";
     ctx.fill();
   }
@@ -310,9 +318,11 @@ function drawWalk(now) {
   const ctx = fit(canvas);
   const size = canvas.width;
   const { state } = currentFrame(now);
+  // Rotated into canvas space *before* the bounds are taken, so the plot is scaled to the path it
+  // is about to draw rather than to the path in the other coordinate system.
   const points = (snap.history ?? [])
-    .map((e) => ({ x: Number(e.state.posX), y: Number(e.state.posY) }))
-    .concat(state ? [{ x: Number(state.posX), y: Number(state.posY) }] : []);
+    .map((e) => toCanvas(Number(e.state.posX), Number(e.state.posY)))
+    .concat(state ? [toCanvas(Number(state.posX), Number(state.posY))] : []);
 
   if (points.length === 0) {
     return;
@@ -695,6 +705,7 @@ function renderAll() {
     : t("ring.heading");
   document.getElementById("unpin").hidden = !pinned;
 }
+
 
 /**
  * The visitor's wallet, in two places, because they are two different jobs.
