@@ -9,10 +9,11 @@
  * # The static half and the dynamic half
  *
  * Everything written directly in `index.html` carries `data-i18n` (or `data-i18n-html` for the
- * one caption with a `<code>` in it) and is filled from here. Everything drawn in JavaScript —
- * the panels, the roster, the timeline, the notes — is redrawn by its own renderer when the
- * language changes, because only it knows what it drew. `onLanguage` is that signal; the page
- * re-runs its renderers and does not need to know which strings exist.
+ * captions that carry markup — a `<strong>` lead, or a `<code>` for a script's name) and is
+ * filled from here. Everything drawn in JavaScript — the panels, the roster, the timeline, the
+ * notes — is redrawn by its own renderer when the language changes, because only it knows what it
+ * drew. `onLanguage` is that signal; the page re-runs its renderers and does not need to know
+ * which strings exist.
  *
  * @module i18n-dom
  */
@@ -53,8 +54,9 @@ export function applyLanguage() {
     el.textContent = t(el.dataset.i18n);
   }
   for (const el of document.querySelectorAll("[data-i18n-html]")) {
-    // The dictionary is a local literal, not user input — the `<code>` tags in one caption are
-    // the only markup any of these strings contains.
+    // The dictionary is a local literal, not user input — the `<strong>`, `<em>` and `<code>` tags
+    // in a handful of captions are the only markup any of these strings contains. Anything that
+    // ever interpolates into one of these keys would have to be escaped first; nothing does.
     el.innerHTML = t(el.dataset.i18nHtml);
   }
 }

@@ -13,11 +13,16 @@
     <header class="masthead">
       <div>
         <h1 data-i18n="app.name">CKB Fly</h1>
-        <p class="standfirst" data-i18n="app.standfirst">
-          A <em>Drosophila</em> head-direction ring attractor — 155 neurons, 6,522 connections —
-          running as an organism on Nervos CKB. The fly is a cell. Every tick consumes it and
-          creates its successor, and the type script refuses anything that is not the exact
-          result of the action the witness declares.
+        <!-- The captions that open with a bold lead are `data-i18n-html`; the ones that are a
+             single sentence stay `data-i18n`. What is written here is the pre-script fallback, so
+             it has to be the same markup the dictionary carries or the page flickers on load. -->
+        <p class="standfirst" data-i18n-html="app.standfirst">
+          <strong
+            >A <em>Drosophila</em> head-direction ring attractor — 155 neurons, 6,522 connections —
+            running as an organism on Nervos CKB.</strong
+          >
+          The fly is a cell: every tick consumes it and creates its successor, and the type script
+          refuses anything that is not the exact result of the action the witness declares.
         </p>
       </div>
       <!-- The language switch and the wallet control are the first things in the right-hand
@@ -43,12 +48,14 @@
         <span class="count" id="roster-count"></span>
       </div>
       <ol class="roster" id="roster"></ol>
-      <p class="caption" data-i18n="world.caption">
-        Every organism on this chain, found by asking for cells that wear the flybrain
-        <em>code</em> — each fly has a different type script, so there is no single script to
-        look up. The eight-byte instance in the args is what makes two flies with the same
-        genome two organisms; without it they would share a type script and this list would
-        have one row. Click one to watch it.
+      <p class="caption" data-i18n-html="world.caption">
+        <strong
+          >Every organism on this chain, found by asking for cells that wear the flybrain
+          code.</strong
+        >
+        Each fly has a different type script, so there is no single script to look up. The
+        eight-byte instance in the args is what makes two flies with the same genome two organisms
+        — without it this list would have one row. Click a row to watch that one.
       </p>
     </section>
 
@@ -59,9 +66,12 @@
           <button id="unpin" class="ghost" hidden data-i18n="ring.unpin">return to live</button>
         </div>
         <canvas id="ring" width="720" height="720"></canvas>
-        <p class="caption" id="ring-caption" data-i18n="ring.caption">
-          Compass cells sit on the outer ring, one arc per wedge of the ellipsoid body; the
-          rest fill the inside. A neuron that fired on the last step is drawn bright.
+        <p class="caption" id="ring-caption" data-i18n-html="ring.caption">
+          <strong
+            >Compass cells sit on the outer ring, one arc per wedge of the ellipsoid body; the rest
+            fill the inside.</strong
+          >
+          A neuron that fired on the last step is drawn bright.
         </p>
       </section>
 
@@ -74,9 +84,10 @@
         <section class="panel">
           <h2 data-i18n="backing.heading">Backing</h2>
           <dl class="facts" id="backing"></dl>
-          <p class="caption" data-i18n="backing.caption">
-            The fly has no token. Its capacity <em>is</em> its body and its remaining life,
-            and the two sides of this ledger have to be equal — the type script compares them.
+          <p class="caption" data-i18n-html="backing.caption">
+            <strong>The fly has no token.</strong> Its capacity <em>is</em> its body and its
+            remaining life, and the two sides of this ledger have to be equal — the type script
+            compares them.
           </p>
         </section>
 
@@ -84,12 +95,14 @@
           <h2 data-i18n="chronicle.heading">Chronicle</h2>
           <dl class="facts" id="chronicle"></dl>
           <p class="caption" id="chronicle-caption" data-i18n-html="chronicle.caption">
-            A second type script, <code>flyworld</code>, keeps this record — and updates it
-            in the same transaction as the transition it describes. It is not told what the
-            fly did: it is required to look at the fly, which must be present, and to record
-            exactly what it finds. Nothing here was supplied by whoever sent the
-            transaction, and the cell's own capacity never changes, so it cannot be used to
-            hide value either.
+            <strong
+              >A second type script, <code>flyworld</code>, keeps this record — in the same
+              transaction as the transition it describes.</strong
+            >
+            It is not told what the fly did: it must look at the fly, which must be present, and
+            record exactly what it finds. Nothing here was supplied by whoever sent the
+            transaction, and the cell's own capacity never changes, so it cannot be used to hide
+            value either.
           </p>
         </section>
 
@@ -107,9 +120,20 @@
           <p class="caption" id="wallet-note"></p>
         </section>
 
-        <section class="panel" id="drive-panel">
-          <h2 data-i18n="drive.heading">Drive</h2>
+        <section class="panel drive-panel" id="drive-panel">
+          <div class="panel-head">
+            <h2 data-i18n="drive.heading">Drive</h2>
+            <!-- The one number a reader wants before clicking: how much life is left to spend.
+                 It reads the *displayed* state, so pinning a past step shows that step's life
+                 rather than the live one — the buttons act on what is on screen. -->
+            <span class="count" id="drive-life"></span>
+          </div>
           <div class="buttons" id="drive"></div>
+          <!-- What the last click did, next to the buttons that caused it. The footer line is
+               about the page's own connection to the indexer; this one is about the reader's
+               click, and a click's outcome belongs where the click was made. It is `hidden`
+               until something has happened, because an empty box reads as a broken one. -->
+          <p class="action-status" id="drive-status" hidden></p>
           <p class="caption" id="drive-note"></p>
         </section>
       </aside>
@@ -117,9 +141,9 @@
 
     <section class="panel timeline-panel">
       <h2 data-i18n="timeline.heading">Life so far</h2>
-      <p class="caption" data-i18n="timeline.caption">
-        CKB has no event log. This is not a log — it is the fly's chain of state cells,
-        walked backwards from the current one, with each action read out of the witness the
+      <p class="caption" data-i18n-html="timeline.caption">
+        <strong>CKB has no event log, and this is not one.</strong> It is the fly's chain of state
+        cells, walked backwards from the current one, with each action read out of the witness the
         type script validated. Nothing here was emitted, and nothing here can be edited.
       </p>
       <ol class="timeline" id="timeline"></ol>
@@ -127,8 +151,13 @@
 
     <footer>
       <!-- No `data-i18n`: the status line is transient, and a language switch must not blank it
-           to "connecting…". Whatever set it last is still the truth. -->
-      <span id="status">connecting…</span>
+           to "connecting…". Whatever set it last is still the truth.
+
+           `data-state` is the three-way answer to "is the page all right": `busy` while it is
+           waiting on something, `ok` when the last thing it did worked, `bad` when it did not.
+           The colour is on the dot rather than on the words, so the line stays readable when it
+           is red. -->
+      <span id="status" data-state="busy">connecting…</span>
     </footer>
 
     <script type="module" src="./app.js"></script>

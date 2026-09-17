@@ -31,26 +31,30 @@ const EN = {
   "lang.other": "中文",
 
   "app.name": "CKB Fly",
+  // Every caption that runs to more than one sentence opens with a `<strong>` lead: the sentence
+  // that says what the panel *is*. Rendered through `data-i18n-html` rather than `data-i18n`
+  // because of it — see the note in `i18n-dom.source.js`. The point is that a reader can find out
+  // whether they need to read the paragraph without reading it.
   "app.standfirst":
-    "A Drosophila head-direction ring attractor — 155 neurons, 6,522 connections — running as an " +
-    "organism on Nervos CKB. The fly is a cell. Every tick consumes it and creates its successor, " +
-    "and the type script refuses anything that is not the exact result of the action the witness " +
-    "declares.",
+    "<strong>A Drosophila head-direction ring attractor — 155 neurons, 6,522 connections — " +
+    "running as an organism on Nervos CKB.</strong> The fly is a cell: every tick consumes it and " +
+    "creates its successor, and the type script refuses anything that is not the exact result of " +
+    "the action the witness declares.",
 
   "world.heading": "The world",
   "world.countOne": "1 organism on this chain",
   "world.count": "{n} organisms on this chain",
   "world.caption":
-    "Every organism on this chain, found by asking for cells that wear the flybrain code — each " +
-    "fly has a different type script, so there is no single script to look up. The eight-byte " +
-    "instance in the args is what makes two flies with the same genome two organisms; without it " +
-    "they would share a type script and this list would have one row. Click one to watch it.",
+    "<strong>Every organism on this chain, found by asking for cells that wear the flybrain " +
+    "code.</strong> Each fly has a different type script, so there is no single script to look " +
+    "up. The eight-byte instance in the args is what makes two flies with the same genome two " +
+    "organisms — without it this list would have one row. Click a row to watch that one.",
 
   "ring.heading": "The ring",
   "ring.headingAtStep": "The ring at step {step}",
   "ring.caption":
-    "Compass cells sit on the outer ring, one arc per wedge of the ellipsoid body; the rest fill " +
-    "the inside. A neuron that fired on the last step is drawn bright.",
+    "<strong>Compass cells sit on the outer ring, one arc per wedge of the ellipsoid body; the " +
+    "rest fill the inside.</strong> A neuron that fired on the last step is drawn bright.",
   "ring.unpin": "return to live",
 
   "life.heading": "Life",
@@ -72,8 +76,8 @@ const EN = {
 
   "backing.heading": "Backing",
   "backing.caption":
-    "The fly has no token. Its capacity is its body and its remaining life, and the two sides of " +
-    "this ledger have to be equal — the type script compares them.",
+    "<strong>The fly has no token.</strong> Its capacity <em>is</em> its body and its remaining " +
+    "life, and the two sides of this ledger have to be equal — the type script compares them.",
   "backing.perStep": "backing / step",
   "backing.shannons": "{n} shannons",
   "backing.body": "body",
@@ -177,21 +181,30 @@ const EN = {
   "drive.feed": "feed {n}",
   "drive.cue": "cue, wedge {wedge}",
   "drive.shock": "shock",
+  // The second line of each card: what the click costs the fly. `tick 64` and `tick 32` are one
+  // digit apart and differ by twice the life, and the only place that difference can be said is
+  // under the label. `{ckb}` on the feed card is computed from `economics.backingPerStep` rather
+  // than written in, so the two numbers cannot drift apart.
+  "drive.lifeLeft": "{n} steps of life left",
+  "drive.subTick": "spends {n} steps of life",
+  "drive.subFeed": "adds {n} steps of life · +{ckb} CKB",
+  "drive.subCue": "holds a landmark · spends {n} steps",
+  "drive.subShock": "an aversive pulse · spends {n} steps",
   "drive.noteWallet":
-    "Enabled: your wallet signs and pays. The server builds the transaction — the successor " +
-    "state is the Rust planner's — and holds no key for it.",
+    "<strong>Enabled: your wallet signs and pays.</strong> The server builds the transaction — the " +
+    "successor state is the Rust planner's — and holds no key for it.",
   "drive.notePublic":
-    "These sign a transaction with the key this server was started with. Only sensible on a " +
-    "chain where that key is worthless. This organism is public: flylock accepts every " +
-    "transaction, so anyone may advance it.",
+    "<strong>These sign a transaction with the key this server was started with.</strong> Only " +
+    "sensible on a chain where that key is worthless. This organism is public: flylock accepts " +
+    "every transaction, so anyone may advance it.",
   "drive.notePrivate":
-    "These sign a transaction with the key this server was started with. This organism is " +
-    "private — its lock is this server's own secp256k1 lock — so these buttons are the only " +
-    "thing that can advance it without that key in hand.",
+    "<strong>These sign a transaction with the key this server was started with.</strong> This " +
+    "organism is private — its lock is this server's own secp256k1 lock — so these buttons are " +
+    "the only thing that can advance it without that key in hand.",
   "drive.noteNoDrive":
-    "Disabled. This server was started without INDEXER_ALLOW_DRIVE, so it will not sign with its " +
-    "own key — but connecting a wallet (top right) does not need that key at all, and will " +
-    "enable these buttons if the organism is public.",
+    "<strong>Disabled.</strong> This server was started without INDEXER_ALLOW_DRIVE, so it will " +
+    "not sign with its own key — but connecting a wallet (top right) does not need that key at " +
+    "all, and will enable these buttons if the organism is public.",
   "drive.disabled": "Disabled: {reason}",
   "drive.asking": "asking your wallet to sign {kind}…",
   "drive.sent":
@@ -219,23 +232,23 @@ const ZH = {
 
   "app.name": "CKB 果蝇",
   "app.standfirst":
-    "果蝇头朝向环形吸引子——155 个神经元、6,522 条连接——作为一只生物跑在 Nervos CKB 上。" +
-    "这只果蝇就是一个 cell：每次 tick 花掉它、并造出它的后继，而 type script 拒绝任何不是" +
-    "「witness 声明的动作的精确结果」的东西。",
+    "<strong>果蝇头朝向环形吸引子——155 个神经元、6,522 条连接——作为一只生物跑在 Nervos CKB " +
+    "上。</strong>这只果蝇就是一个 cell：每次 tick 花掉它、并造出它的后继，而 type script " +
+    "拒绝任何不是「witness 声明的动作的精确结果」的东西。",
 
   "world.heading": "世界",
   "world.countOne": "这条链上有 1 只生物",
   "world.count": "这条链上有 {n} 只生物",
   "world.caption":
-    "这条链上的每一只生物，都是靠「找戴着 flybrain 这段代码的 cell」找出来的——每只果蝇的 " +
-    "type script 都不同，所以没有唯一一个脚本可查。args 里那 8 个字节的 instance 就是" +
-    "「同一个基因组的两只果蝇算两只生物」的原因；没有它，两只果蝇会共用一个 type script，" +
-    "这张表也就只剩一行。点一行即可观看它。",
+    "<strong>这条链上的每一只生物，都是靠「找戴着 flybrain 这段代码的 cell」找出来的。</strong>" +
+    "每只果蝇的 type script 都不同，所以没有唯一一个脚本可查。args 里那 8 个字节的 instance " +
+    "就是「同一个基因组的两只果蝇算两只生物」的原因——没有它，这张表也就只剩一行。点一行即可观看它。",
 
   "ring.heading": "环形",
   "ring.headingAtStep": "第 {step} 步时的环",
   "ring.caption":
-    "罗盘细胞坐在外环上，椭球体的每个楔区一段弧；其余神经元填在内部。上一步发放过的神经元画得更亮。",
+    "<strong>罗盘细胞坐在外环上，椭球体的每个楔区一段弧；其余神经元填在内部。</strong>" +
+    "上一步发放过的神经元画得更亮。",
   "ring.unpin": "回到实时",
 
   "life.heading": "生命",
@@ -265,10 +278,10 @@ const ZH = {
 
   "chronicle.heading": "编年史",
   "chronicle.caption":
-    "第二个 type script——<code>flyworld</code>——保存这份记录，并且与它所描述的这次状态转换" +
-    "写在同一笔交易里。它不被告知果蝇做了什么：它被要求自己去看，而果蝇必须在场，" +
-    "它要把看到的东西原样记下。这里没有任何一项是发交易的人提供的；这个 cell 自己的容量" +
-    "永不改变，所以它也不能被用来藏钱。",
+    "<strong>这份记录由第二个 type script <code>flyworld</code> 保存——与它所描述的那次状态" +
+    "转换写在同一笔交易里。</strong>它不被告知果蝇做了什么：它必须自己去看（而果蝇必须在场），" +
+    "并如实记下看到的东西。这里没有任何一项是发交易的人提供的；这个 cell 自己的容量永不改变，" +
+    "所以它也不能被用来藏钱。",
   "chronicle.record": "记录",
   "chronicle.none": "无 —— 这只果蝇在编年史存在之前就已部署",
   "chronicle.life": "生命",
@@ -327,9 +340,9 @@ const ZH = {
 
   "timeline.heading": "迄今为止",
   "timeline.caption":
-    "CKB 没有事件日志。这不是日志——它是果蝇的状态 cell 链，从当前这只往回走，" +
-    "每一次动作都是从那笔被 type script 验证过的 witness 里读出来的。这里没有任何东西是被" +
-    "「发出」的，也没有任何东西可以被修改。",
+    "<strong>CKB 没有事件日志，这张表也不是。</strong>它是果蝇的状态 cell 链，从当前这只" +
+    "往回走，每一次动作都是从那笔被 type script 验证过的 witness 里读出来的。" +
+    "这里没有任何东西是被「发出」的，也没有任何东西可以被修改。",
   "timeline.block": "区块 {n}",
   "timeline.step": "第 {n} 步",
 
@@ -354,17 +367,23 @@ const ZH = {
   "drive.feed": "投喂 {n} 步",
   "drive.cue": "线索，楔区 {wedge}",
   "drive.shock": "电击",
+  "drive.lifeLeft": "还剩 {n} 步寿命",
+  "drive.subTick": "消耗 {n} 步寿命",
+  "drive.subFeed": "补充 {n} 步寿命 · +{ckb} CKB",
+  "drive.subCue": "保持一个路标 · 消耗 {n} 步",
+  "drive.subShock": "厌恶刺激 · 消耗 {n} 步",
   "drive.noteWallet":
-    "可用：由你的钱包签名并付费。交易由服务器组装——后继状态来自 Rust planner——它不持有这把钥匙。",
+    "<strong>可用：由你的钱包签名并付费。</strong>交易由服务器组装——后继状态来自 Rust planner——" +
+    "它不持有这把钥匙。",
   "drive.notePublic":
-    "这些按钮用本服务器启动时的那把钥匙签名。只在这把钥匙不值钱的链上才合理。这只生物是公开的：" +
-    "flylock 接受任何交易，所以谁都可以推进它。",
+    "<strong>这些按钮用本服务器启动时的那把钥匙签名。</strong>只在这把钥匙不值钱的链上才合理。" +
+    "这只生物是公开的：flylock 接受任何交易，所以谁都可以推进它。",
   "drive.notePrivate":
-    "这些按钮用本服务器启动时的那把钥匙签名。这只生物是私有的——它的锁就是本服务器自己的 " +
-    "secp256k1 锁——所以手上没有那把钥匙的话，只有这些按钮能推进它。",
+    "<strong>这些按钮用本服务器启动时的那把钥匙签名。</strong>这只生物是私有的——它的锁就是" +
+    "本服务器自己的 secp256k1 锁——所以手上没有那把钥匙的话，只有这些按钮能推进它。",
   "drive.noteNoDrive":
-    "已禁用。本服务器启动时没有开 INDEXER_ALLOW_DRIVE，所以它不会用自己的钥匙签名——" +
-    "但连接一个钱包（右上角）完全不需要那把钥匙，只要这只生物是公开的，这些按钮就会亮起来。",
+    "<strong>已禁用。</strong>本服务器启动时没有开 INDEXER_ALLOW_DRIVE，所以它不会用自己的钥匙" +
+    "签名——但连接一个钱包（右上角）完全不需要那把钥匙，只要这只生物是公开的，这些按钮就会亮起来。",
   "drive.disabled": "已禁用：{reason}",
   "drive.asking": "正在请你的钱包为 {kind} 签名…",
   "drive.sent": "已发送 {tx} —— 由你的钱包签名并付费；节点确认后索引器会把它收录进来",

@@ -587,6 +587,10 @@ async function watch(fly) {
     pinned = null;
     anim = null;
     drawn = null;
+    // Before the snapshot, not after: `applySnapshot` redraws the Drive panel, and a refusal
+    // from the previous fly would be sitting under the new fly's buttons for the moment in
+    // between — which is the moment a reader is most likely to read it.
+    clearAction();
     applySnapshot(await res.json());
     setStatus(t("status.watching", { instance: fly.instance, hash: fly.typeHash.slice(0, 12) }));
   } catch (err) {
@@ -786,7 +790,7 @@ function renderWallet() {
         // patched: one source of truth for the button state.
         .then(() => loadSnapshot())
         .then(() => {
-          setStatus(t("wallet.connected", { address: wallet.address().slice(0, 20) }));
+          setStatus(t("wallet.connected", { address: wallet.address().slice(0, 20) }), "ok");
           renderWallet();
           renderDrive();
         })
@@ -893,6 +897,7 @@ function connectorFeeRate() {
 function renderDrive() {
   const target = document.getElementById("drive");
   const note = document.getElementById("drive-note");
+  const life = document.getElementById("drive-life");
   // Who signs a click. With a wallet connected the server was asked about *that* key
   // (`meta.as === "wallet"`, because the snapshot carries the address), and there is nothing to
   // check locally: the answer already came from the one implementation of the rule. Without
@@ -902,29 +907,83 @@ function renderDrive() {
   const enabled = mayDrive && !pinned;
   target.innerHTML = "";
 
+  // The state the buttons would act on, which is the displayed one rather than the live one —
+  // pinning a past step disables them precisely because acting there is not what the reader is
+  // looking at. The life readout follows the same rule, so the number above the buttons is always
+  // the number a click would spend from.
+  const s = displayedEntry()?.state ?? null;
+  if (life) {
+    life.textContent = s ? t("drive.lifeLeft", { n: fmt(s.energy) }) : "";
+  }
+
+  // What a step of life is worth, read from the same economics the Backing panel prints rather
+  // than written into the label: the feed button's "+1 CKB" is 10,000 × `backingPerStep`, and if
+  // that constant ever moves, a hardcoded "1" would become a lie in the one place a reader is
+  // deciding whether to spend money.
+  const perStep = BigInt(snap.economics?.backingPerStep ?? 0);
+  const inCkb = (steps) => fmt(Number(BigInt(steps) * perStep) / 1e8);
+
+  // Five cards, not five words. `tick 64` and `tick 32` differ by a digit and by how much of the
+  // fly's life they spend; `cue` and `shock` are the same shape of transaction and completely
+  // different experiments. The sub-line is where that difference lives, and it is why these are
+  // laid out as cards with room for a second line instead of as a row of buttons.
   const actions = [
-    [t("drive.tick", { n: 64 }), { kind: "tick", steps: 64 }],
-    [t("drive.tick", { n: 32 }), { kind: "tick", steps: 32 }],
-    [t("drive.feed", { n: fmt(10000) }), { kind: "feed", steps: 10000 }],
-    [t("drive.cue", { wedge: 4 }), { kind: "stimulate", channel: 1, param: 4, strength: 4, steps: 32 }],
-    [t("drive.shock"), { kind: "stimulate", channel: 4, param: 0, strength: 4, steps: 32 }],
+    {
+      label: t("drive.tick", { n: 64 }),
+      sub: t("drive.subTick", { n: fmt(64) }),
+      spec: { kind: "tick", steps: 64 },
+    },
+    {
+      label: t("drive.tick", { n: 32 }),
+      sub: t("drive.subTick", { n: fmt(32) }),
+      spec: { kind: "tick", steps: 32 },
+    },
+    {
+      label: t("drive.feed", { n: fmt(10000) }),
+      sub: t("drive.subFeed", { n: fmt(10000), ckb: inCkb(10000) }),
+      spec: { kind: "feed", steps: 10000 },
+    },
+    {
+      label: t("drive.cue", { wedge: 4 }),
+      sub: t("drive.subCue", { n: fmt(32) }),
+      spec: { kind: "stimulate", channel: 1, param: 4, strength: 4, steps: 32 },
+    },
+    {
+      label: t("drive.shock"),
+      sub: t("drive.subShock", { n: fmt(32) }),
+      spec: { kind: "stimulate", channel: 4, param: 0, strength: 4, steps: 32 },
+    },
   ];
 
-  for (const [label, spec] of actions) {
+  for (const { label, sub, spec } of actions) {
     const button = document.createElement("button");
-    button.textContent = label;
+    button.className = "action";
+    // Two spans rather than a `textContent` with a newline in it: the label and the cost have
+    // different sizes and different colours, and a button is a flex/grid box only if it has
+    // elements to lay out.
+    const name = document.createElement("span");
+    name.className = "action-label";
+    name.textContent = label;
+    const cost = document.createElement("span");
+    cost.className = "action-sub";
+    cost.textContent = sub;
+    button.append(name, cost);
     button.disabled = !enabled;
     button.addEventListener("click", async () => {
       button.disabled = true;
+      // Which of the five is in flight. On the server-signed path a click waits for the node to
+      // *commit* — measured at 41 seconds on preview testnet — and during that time all five
+      // buttons are grey and identical. The one that is running says so.
+      button.setAttribute("aria-busy", "true");
       try {
         if (byWallet) {
           // Fast, and it does not stall on a confirmation: the wallet signs and broadcasts, and
           // the node answers as soon as it accepts the transaction. What the fly becomes is
           // still the server's prediction (it came from the planner), which is why the numbers
           // are shown as predicted rather than as the chain's.
-          setStatus(t("drive.asking", { kind: actionName(spec.kind) }));
+          setAction(t("drive.asking", { kind: actionName(spec.kind) }), "busy");
           const result = await wallet.drive(spec, { feeRate: connectorFeeRate() });
-          setStatus(t("drive.sent", { tx: result.txHash }));
+          setAction(t("drive.sent", { tx: result.txHash }), "ok");
           await loadSnapshot();
           return;
         }
@@ -933,7 +992,7 @@ function renderDrive() {
         // at **41 seconds** for a click that succeeded — and for that whole time the only thing
         // on screen was a greyed-out button. A page that looks dead for forty seconds is
         // indistinguishable from one that broke, so it says what it is waiting for.
-        setStatus(t("drive.submitting", { kind: actionName(spec.kind) }));
+        setAction(t("drive.submitting", { kind: actionName(spec.kind) }), "busy");
         const res = await fetch("/api/act", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -943,14 +1002,18 @@ function renderDrive() {
         // Branch order matters: a duplicate arrives with `ok: true` and no `txHash`, because
         // the request did not fail but *we* did not send the transaction either — the node
         // already had it. Checking `ok` first would print "accepted undefined".
+        //
+        // `duplicate` is `ok`, not `bad`: the transition the reader asked for is on its way, just
+        // not because of this click. Colouring it red would teach them to distrust a button that
+        // worked.
         if (body.duplicate) {
-          setStatus(t("drive.duplicate", { reason: body.error }));
+          setAction(t("drive.duplicate", { reason: body.error }), "ok");
         } else if (body.lost) {
-          setStatus(t("drive.raced", { reason: body.error }), true);
+          setAction(t("drive.raced", { reason: body.error }), "bad");
         } else if (body.ok) {
-          setStatus(t("drive.accepted", { tx: body.txHash }));
+          setAction(t("drive.accepted", { tx: body.txHash }), "ok");
         } else {
-          setStatus(t("drive.refused", { reason: body.error }), true);
+          setAction(t("drive.refused", { reason: body.error }), "bad");
         }
         // Reloaded on every outcome, including the refusals. A refusal is the case where the
         // reader's picture of the chain is *most* likely to be wrong — someone else moved it,
@@ -958,35 +1021,50 @@ function renderDrive() {
         // up disagreeing with the organism it is drawing.
         await loadSnapshot();
       } catch (err) {
-        reportError(err);
-    } finally {
-      // Recomputed, not reused. `mayDrive` was captured when this button was built, and the
-      // reader can pin a past state while the transaction is in flight — which makes the
-      // buttons ineligible for a second reason that this render never knew about. Reusing the
-      // render-time answer would re-enable a button that `renderDrive` would have left
-      // disabled, and the next click would act on a state the reader had navigated away from.
-      const stillByWallet = snap.meta.as === "wallet" && !!wallet?.current();
-      const stillAllowed = stillByWallet
-        ? snap.meta.drivable
-        : snap.meta.drive && snap.meta.drivable;
-      button.disabled = !stillAllowed || pinned !== null;
-    }
+        // The click's own failure, said where the click was. It does not go to the footer: that
+        // line answers "is the page connected", and a wallet the reader cancelled in a popup is
+        // not an answer to that question.
+        setAction(err.message, "bad");
+      } finally {
+        button.removeAttribute("aria-busy");
+        // Recomputed, not reused. `mayDrive` was captured when this button was built, and the
+        // reader can pin a past state while the transaction is in flight — which makes the
+        // buttons ineligible for a second reason that this render never knew about. Reusing the
+        // render-time answer would re-enable a button that `renderDrive` would have left
+        // disabled, and the next click would act on a state the reader had navigated away from.
+        const stillByWallet = snap.meta.as === "wallet" && !!wallet?.current();
+        const stillAllowed = stillByWallet
+          ? snap.meta.drivable
+          : snap.meta.drive && snap.meta.drivable;
+        button.disabled = !stillAllowed || pinned !== null;
+      }
     });
     target.append(button);
   }
 
+  // The three sentences that explain why these buttons work carry markup, because they open with a
+  // bold lead like every other caption on the page. `drive.disabled` does not: it interpolates a
+  // reason that came from the server, and a server-supplied string goes in as *text*. The rule is
+  // per-key and not per-element, which is why it is written here rather than as a helper that
+  // takes whatever it is given.
+  const lead = (key) => {
+    note.innerHTML = t(key);
+  };
+
   if (mayDrive) {
-    note.textContent = byWallet
-      ? t("drive.noteWallet")
-      : snap.meta.lock === "flylock"
-        ? t("drive.notePublic")
-        : t("drive.notePrivate");
+    lead(
+      byWallet
+        ? "drive.noteWallet"
+        : snap.meta.lock === "flylock"
+          ? "drive.notePublic"
+          : "drive.notePrivate",
+    );
   } else if (byWallet || snap.meta.as === "wallet") {
     // The reader is using a wallet and it is the wrong key for this organism. The sentence comes
     // from the same call the endpoint refuses with.
     note.textContent = t("drive.disabled", { reason: snap.meta.undrivableReason });
   } else if (!snap.meta.drive) {
-    note.textContent = t("drive.noteNoDrive");
+    lead("drive.noteNoDrive");
   } else {
     // One reason left, and its sentence comes from the module the server itself refuses with,
     // so what the page says and what the endpoint answers cannot drift apart.
@@ -1013,14 +1091,55 @@ function actionName(kind) {
   return name === key ? kind : name;
 }
 
-function setStatus(text, bad = false) {
-  const el = document.getElementById("status");
+/**
+ * Paint a status line: its text, and which of the three things it is.
+ *
+ * The state is a `data-` attribute rather than a class because it is read as a state by the
+ * stylesheet — the dot pulses while something is in flight, turns green when it worked and red
+ * when it did not. The colour goes on the dot and not on the words: a whole sentence in `--bad`
+ * at 12.5px is the hardest thing on the page to read, and it is the one sentence a reader
+ * actually has to read carefully.
+ *
+ * @param {HTMLElement} el
+ * @param {string} text
+ * @param {"busy"|"ok"|"bad"} state
+ */
+function paintStatus(el, text, state) {
   el.textContent = text;
-  el.className = bad ? "bad" : "";
+  el.dataset.state = state;
+  el.hidden = false;
+}
+
+/**
+ * The page's own health: is it connected, is the indexer answering, is the stream alive.
+ *
+ * It lives in the footer because it is about the page rather than about anything the reader did,
+ * and it is deliberately *not* where a click's outcome goes.
+ */
+function setStatus(text, state = "busy") {
+  paintStatus(document.getElementById("status"), text, state);
+}
+
+/** The reader's own click, reported next to the buttons that made it. */
+function setAction(text, state = "busy") {
+  paintStatus(document.getElementById("drive-status"), text, state);
+}
+
+/**
+ * Forget the last click's outcome.
+ *
+ * Called when the page switches to a different organism. A refusal left over from the previous
+ * fly is a sentence about *this* fly that is not true of it, and the one place a reader will
+ * believe it is the panel they are about to press a button in.
+ */
+function clearAction() {
+  const el = document.getElementById("drive-status");
+  el.textContent = "";
+  el.hidden = true;
 }
 
 function reportError(err) {
-  setStatus(err.message, true);
+  setStatus(err.message, "bad");
 }
 
 // ------------------------------------------------------------------ start
@@ -1061,7 +1180,7 @@ loadSnapshot()
             n: snap.meta.count,
             time: new Date(snap.meta.updatedAt).toLocaleTimeString(locale()),
           }),
-      !!snap.meta.error,
+      snap.meta.error ? "bad" : "ok",
     );
     subscribe();
   })
