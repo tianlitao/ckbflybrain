@@ -68,7 +68,9 @@ const ex = instance.exports;
 const scratch = ex.fly_scratch();
 const IN_STATE = ex.fly_in_state();
 const IN_ACTION = ex.fly_in_action();
+const IN_WORLD = ex.fly_in_world();
 const out = ex.fly_out_off();
+const outWorld = ex.fly_out_world_off();
 
 let pass = 0;
 let fail = 0;
@@ -116,6 +118,48 @@ check(
   "a whole answer fits in the scratch",
   `${out + HEAD + 1213} <= ${ex.fly_scratch_len()}`,
 );
+check(
+  IN_WORLD >= IN_ACTION + 17 && IN_WORLD + 128 <= out,
+  "the chronicle has a region of its own",
+  `in at ${IN_WORLD}, answer at ${out}`,
+);
+check(
+  outWorld >= out + HEAD + 1213 && outWorld + 128 <= ex.fly_scratch_len(),
+  "and so does its successor",
+  `out at ${outWorld}`,
+);
+
+// ---------------------------------------------------------------- the connectome
+//
+// The page draws a ring, so it needs to know which neuron sits in which wedge — and it has
+// to draw the connectome the chain is running, not one that happens to be lying around.
+// `flycircuit::TABLE` is the answer, and this checks that the bytes the module hands out
+// are the bytes `flyplan` describes, neuron by neuron.
+
+console.log();
+
+const circuit = plan("circuit", "--layout");
+const table = new Uint8Array(ex.memory.buffer, ex.fly_circuit_table(), ex.fly_circuit_len());
+
+check(ex.fly_circuit_len() === circuit.bytes, "the table is the size flyplan says",
+  `${ex.fly_circuit_len()} bytes`);
+check(table[0] === 1 && table[1] === circuit.n, "its header names one version and n neurons",
+  `version ${table[0]}, n ${table[1]}`);
+
+// The three per-neuron arrays sit back to back from byte 4, which is why this is a slice
+// and not a loop over `n` separate reads.
+const n = circuit.n;
+const parsed = [];
+for (let i = 0; i < n; i++) {
+  parsed.push({ type: table[4 + i], wedge: table[4 + n + i], side: table[4 + 2 * n + i] });
+}
+const mismatches = parsed
+  .map((p, i) => ({ p, want: circuit.layout[i], i }))
+  .filter(({ p, want }) => p.type !== want.type || p.wedge !== want.wedge || p.side !== want.side);
+check(mismatches.length === 0, "and places every neuron where flyplan places it",
+  mismatches.length === 0
+    ? `${n} neurons`
+    : `neuron ${mismatches[0].i}: wasm ${JSON.stringify(mismatches[0].p)} vs ${JSON.stringify(mismatches[0].want)}`);
 
 // ---------------------------------------------------------------- accepting inputs
 
@@ -255,6 +299,81 @@ check(revive.ok, "resurrecting a dead fly is accepted",
 // failure's sentence, so "accepted" has to mean "and there is nothing to say".
 check(revive.ok && revive.reason === 0, "and leaves no reason behind",
   `reason ${revive.reason} (${REASON[revive.reason]})`);
+
+// ---------------------------------------------------------------- the chronicle
+//
+// `flyworld`'s type script requires the chronicle to be the *exact* record of the fly in the
+// same transaction, so whoever builds that transaction has to compute it — and the only
+// implementation allowed to be authoritative is the one the validator runs. This is the same
+// comparison as everywhere else in this file: wasm against flyplan, on the encoded bytes.
+
+console.log();
+
+const CAP0 = "160000000000";
+const tickAction = plan("action", "tick", "--steps", "64").action;
+const applied = callWasm(PARAMS.v1, ECON.testnet, start, tickAction);
+check(applied.ok, "a tick to sight", `${applied.state.length / 2 - 1} bytes`);
+// `outCapacity` is the input capacity minus the release, which is what the type script
+// compares for equality. Derived here from `release` rather than asked for separately,
+// because `release` is already the number being checked.
+const CAP1 = String(BigInt(CAP0) - applied.release);
+
+/**
+ * One sighting, through the ABI.
+ *
+ * The fly's **successor** state is not passed in: it is already at `OUT + 16`, put there by
+ * the `fly_apply` immediately above. That ordering is the point — a chronicle records the fly
+ * after the action, and letting a caller hand in a different state would let the two
+ * disagree about which moment was recorded. Callers must therefore not call `fly_apply`
+ * between producing a state and sighting it.
+ */
+function sightWasm(stateHex, worldHex, inCapacity, outCapacity) {
+  const state = hex(stateHex);
+  new Uint8Array(ex.memory.buffer).set(hex(worldHex), scratch + IN_WORLD);
+  const halves = (v) => {
+    const b = BigInt(v);
+    return [Number(b & 0xffff_ffffn), Number(b >> 32n)];
+  };
+  const [il, ih] = halves(inCapacity);
+  const [ol, oh] = halves(outCapacity);
+
+  const written = ex.fly_world_sight(state.length, il, ih, ol, oh);
+  if (written < 0) {
+    return { ok: false, code: written };
+  }
+  const bytes = new Uint8Array(ex.memory.buffer, scratch + outWorld, written);
+  return { ok: true, data: "0x" + Buffer.from(bytes).toString("hex") };
+}
+
+const world0 = plan("world-open", "--fly-state", start, "--capacity", CAP0);
+const nativeSight = plan("world-sight", "--world", world0.data, "--fly-state", applied.state,
+  "--in-capacity", CAP0, "--out-capacity", CAP1);
+const wasmSight = sightWasm(applied.state, world0.data, CAP0, CAP1);
+
+check(wasmSight.ok && wasmSight.data === nativeSight.data, "a sighting matches flyplan",
+  wasmSight.ok
+    ? wasmSight.data === nativeSight.data
+      ? `${wasmSight.data.length / 2 - 1} bytes, ${nativeSight.sightings} sightings`
+      : `wasm ${wasmSight.data.slice(0, 42)}… vs native ${nativeSight.data.slice(0, 42)}…`
+    : `refused (${wasmSight.code})`);
+
+// The second sighting is the one that proves the accumulation, not just the copy: totals
+// carry forward, and the state hash moves to the fly that was just seen.
+const applied2 = callWasm(PARAMS.v1, ECON.testnet, applied.state, tickAction);
+const CAP2 = String(BigInt(CAP1) - applied2.release);
+const nativeSight2 = plan("world-sight", "--world", nativeSight.data, "--fly-state", applied2.state,
+  "--in-capacity", CAP1, "--out-capacity", CAP2);
+const wasmSight2 = sightWasm(applied2.state, nativeSight.data, CAP1, CAP2);
+check(wasmSight2.ok && wasmSight2.data === nativeSight2.data, "and so does the one after it",
+  wasmSight2.ok && wasmSight2.data === nativeSight2.data
+    ? `${nativeSight2.sightings} sightings, released ${nativeSight2.totalReleased}`
+    : "differ");
+
+// A chronicle that is not one has to be refused rather than recorded. `ERR_WORLD` is its own
+// code because it is its own mistake: the caller handed over the wrong cell, not a bad fly.
+const badWorld = sightWasm(applied.state, "0x" + "00".repeat(128), CAP0, CAP1);
+check(!badWorld.ok && badWorld.code === -7, "a malformed chronicle is refused",
+  `code ${badWorld.code} (ERR_WORLD is -7)`);
 
 console.log();
 console.log(`${pass} pass, ${fail} fail`);

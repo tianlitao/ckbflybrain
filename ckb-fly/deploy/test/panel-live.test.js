@@ -26,15 +26,28 @@
  *
  *     node --test test/panel-live.test.js
  *
- * Environment: `FLY_PANEL_URL` (default `http://127.0.0.1:8898/`). Skips when no indexer is
- * serving the page, the same way the Rust integration suite skips without `FLY_REQUIRE_CONTRACT`.
+ * Environment: `FLY_PANEL_URL`, to point at a page served somewhere else. Without it the test
+ * serves `deploy/public/` itself, because a static directory is all the page needs now that it
+ * reads the chain directly. Skips when there is no browser, or no `public/app.js` to serve — the
+ * same way the Rust integration suite skips without `FLY_REQUIRE_CONTRACT`.
  */
 
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { existsSync } from "node:fs";
 
-const PAGE = process.env.FLY_PANEL_URL ?? "http://127.0.0.1:8898/";
+import { bundleExists, startStaticPage } from "./static-page.js";
+
+/**
+ * Where the page comes from. `FLY_PANEL_URL` for one served somewhere else; otherwise `before`
+ * starts a static server over `public/` and points this at it.
+ *
+ * @type {string|null}
+ */
+let PAGE = process.env.FLY_PANEL_URL ?? null;
+
+/** The server `PAGE` points at, when this test started it. */
+let served = null;
 
 /**
  * The two widths a reader might actually have. 980px is where the stylesheet collapses to one
@@ -62,11 +75,11 @@ function chromiumPath() {
 async function unavailable() {
   if (!existsSync(PLAYWRIGHT)) return `playwright-core is not at ${PLAYWRIGHT}`;
   if (!chromiumPath()) return "no chromium found";
-  try {
-    const res = await fetch(new URL("/api/fly", PAGE), { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return `the indexer at ${PAGE} answered ${res.status}`;
-  } catch (err) {
-    return `no indexer at ${PAGE} (${err.message})`;
+  // Probed here rather than in `before` so the skip names the missing bundle: `public/app.js` is
+  // built by `make build-front-end` and is deliberately not in the repository, so a fresh checkout
+  // has no page to serve and that has to read as a skip rather than as a broken test.
+  if (!process.env.FLY_PANEL_URL && !bundleExists()) {
+    return "public/app.js is missing; run `make build-front-end`";
   }
   return null;
 }
@@ -140,6 +153,10 @@ describe("the page a reader gets", () => {
   before(async () => {
     why = await unavailable();
     if (why) return;
+    if (!PAGE) {
+      served = await startStaticPage();
+      PAGE = served.url;
+    }
     const { chromium } = await import(PLAYWRIGHT);
     browser = await chromium.launch({
       headless: true,
@@ -148,8 +165,8 @@ describe("the page a reader gets", () => {
       executablePath: chromiumPath(),
     });
     page = await browser.newPage({ viewport: VIEWPORTS[0] });
-    // `networkidle` never fires — the page holds an SSE connection open — so wait for something
-    // the app renders instead.
+    // `networkidle` never fires — the page polls the node every few seconds — so wait for
+    // something the app renders instead.
     await page.goto(PAGE, { waitUntil: "domcontentloaded", timeout: 45000 });
     await page.waitForFunction(() => document.querySelector("#identity")?.children.length > 0, {
       timeout: 30000,
@@ -162,6 +179,7 @@ describe("the page a reader gets", () => {
 
   after(async () => {
     await browser?.close();
+    await served?.close();
   });
 
   it("keeps every roster column wide enough, in both languages", async (t) => {

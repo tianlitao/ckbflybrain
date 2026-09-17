@@ -15,6 +15,7 @@ deploy/node_modules/
 # and nowhere else, so they belong to whoever ran the deployment. `FLY_STATE` can put one
 # anywhere, so the pattern covers the alternatives a second fly would use.
 deploy/deployment.json
+deploy/deployment.*.json
 deploy/*-deployment.json
 deploy/fly-*.json
 

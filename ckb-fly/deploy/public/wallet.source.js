@@ -3,33 +3,34 @@
  *
  * # Why this is a separate module, and why it is so thin
  *
- * The successor state is the output of the Rust simulation. Recomputing it in the browser would
- * be a second implementation of the one thing this port is about — the page would be able to
- * disagree with the type script about what a tick produces, and the disagreement would look like
- * a rejected transaction with no explanation. So this module does **not** decide what the fly
- * becomes. It asks the server for that (`POST /api/prepare`, which runs the same planner the
- * CLI does), and then does the only three things that genuinely require a key in the browser:
+ * The successor state has to be *exact* — the type script recomputes it and compares bytes — so
+ * whoever builds the transaction must be able to run the organism. That used to mean asking a
+ * server, because `flyplan` is a native binary. It does not any more: `flywasm` is the same
+ * `flycore` compiled for wasm, and `crates/flywasm/verify.mjs` fails if the two ever disagree on
+ * a byte. So the transaction is built **in the page**, by `src/tx.js` — the same code the CLI
+ * uses, with `flywasm` where the CLI has `flyplan`.
  *
- * 1. pay the fee, from the visitor's own coins;
- * 2. sign;
- * 3. send.
+ * What is genuinely left for a key is three things, and this module is those three plus the
+ * wallet list: **pay the fee, sign, send.**
  *
- * The result is that the operator can offer the page **without a key on the server**: `prepare`
- * signs nothing, and `POST /api/act` (the server-signed path) need not be enabled at all.
- *
- * # The three steps are a contract with the server, not an implementation detail
+ * # The three steps are a contract, not an implementation detail
  *
  * `completeFeeBy` adds the payer's inputs and a change output, and **it can rewrite the witness
  * list** — including witness 0, which is where the type script reads the action from. So the
  * action is re-set *after* the fee is completed. Skipping that produces a transaction the node
  * accepts and the type script refuses for a reason (`MissingWitness`) that says nothing about
- * what actually went wrong. `flyInputIndex` comes back from the server for the same reason: the
- * type script reads witness 0 of its *input group*, and that group has exactly one member.
+ * what actually went wrong. `flyInputIndex` is carried rather than assumed: the type script
+ * reads witness 0 of its *input group*, and that group has exactly one member.
+ *
+ * That sequence is `tx.settle`, which the CLI calls too — so "complete the fee, put the action
+ * back, check the fly did not move" is written once rather than twice.
  *
  * # `Transaction.from` is the wrong decoder, and it does not say so
  *
- * CCC has two: `Transaction.from(txLike)` takes an **object**, and `Transaction.fromBytes(bytes)`
- * takes serialized molecule bytes. Handed a hex string, `from` does not throw — a string has no
+ * The transaction arrives as an object now, so `fromBytes` is no longer on this path — but the
+ * mistake it guarded against has moved rather than gone. CCC has two decoders:
+ * `Transaction.from(txLike)` takes an **object**, and `Transaction.fromBytes(bytes)` takes
+ * serialized molecule bytes. Handed a hex string, `from` does not throw — a string has no
  * `inputs` key, so it builds a **valid, empty transaction**. Measured here: the same 2,090-byte
  * prepared hex decoded to `2 inputs / 2 outputs / 1 witness` through `fromBytes` and to
  * `0 / 0 / 0` through `from`, with no error either way. An empty transaction that is then
@@ -69,6 +70,8 @@ import { Rei } from "@ckb-ccc/rei";
 import { UniSat } from "@ckb-ccc/uni-sat";
 import { UtxoGlobal } from "@ckb-ccc/utxo-global";
 import { Xverse } from "@ckb-ccc/xverse";
+
+import { FEE_RATE, settle } from "../src/tx.js";
 
 /**
  * The icon JoyID shows beside the app name.
@@ -161,7 +164,9 @@ function adapters(client) {
 /**
  * A visitor's wallet, or no wallet.
  *
- * @param {string} rpc the node this page's server reads, so the two are never on different chains
+ * @param {string} rpc the node this page reads, so the wallet and the feed are never on
+ *   different chains — a wallet pointed at another network would sign a transaction the feed
+ *   cannot see confirmed, and the click would look lost rather than wrong
  */
 export function createWallet(rpc) {
   const client = new ccc.ClientPublicTestnet(
@@ -172,6 +177,7 @@ export function createWallet(rpc) {
   let signer = null;
   let address = null;
   let name = null;
+  let lockCache = null;
   const listeners = [];
 
   const notify = () => {
@@ -201,6 +207,27 @@ export function createWallet(rpc) {
       return address;
     },
 
+    /**
+     * The lock this wallet signs with.
+     *
+     * Resolved here rather than at each use because it is the input to a rule — `signableLock`,
+     * which decides whether a click is even attempted — and that rule has to be asked about the
+     * key that will actually sign. Resolved through the *address*, not the signer's class: the
+     * address is what the chain will see, so the two cannot disagree about which lock is meant.
+     *
+     * Cached, because it cannot change while a signer is connected and the answer is needed on
+     * every snapshot.
+     */
+    async lock() {
+      if (!signer) {
+        return null;
+      }
+      if (!lockCache) {
+        lockCache = (await signer.getAddressObj()).script;
+      }
+      return lockCache;
+    },
+
     onChange(fn) {
       listeners.push(fn);
     },
@@ -221,6 +248,7 @@ export function createWallet(rpc) {
     async adopt(info) {
       name = info.name;
       signer = info.signer;
+      lockCache = null;
       address = await signer.getRecommendedAddress();
       notify();
       return { address };
@@ -232,6 +260,7 @@ export function createWallet(rpc) {
       // two wallets they just connected.
       name = info.name;
       signer = info.signer;
+      lockCache = null;
       await signer.connect();
       address = await signer.getRecommendedAddress();
       notify();
@@ -253,73 +282,68 @@ export function createWallet(rpc) {
       signer = null;
       address = null;
       name = null;
+      lockCache = null;
       notify();
     },
 
     /**
-     * Drive the organism on screen with this wallet: prepare, pay, sign, send.
+     * Drive the organism on screen with this wallet: build, pay, sign, send.
      *
-     * Returns what the server predicted the transition would be, so the caller can show the
-     * change before the chain confirms it — the indexer will report the same numbers a few
-     * seconds later, from the chain, and the page should not have to guess in between.
+     * `prepare` is the page's half, supplied by the caller rather than imported, so that this
+     * module stays about wallets. It returns the result of `tx.buildAction` — a transaction with
+     * the action already in its witness and no fee paid. Everything before the fee is the same
+     * code the CLI runs, with `flywasm` where the CLI has `flyplan`; everything from the fee on
+     * is the same three steps either way, and they are `tx.settle`.
      *
      * `feeRate` is optional and is the reader's choice when they made one: the fee comes out of
      * their own change output, so a fee-rate control in the UI has to reach this call or it is a
-     * setting that does nothing. Left out, the server's number stands — which is what its "Auto"
-     * resolves to.
+     * setting that does nothing. Left out, the page's own rate stands — which is what the
+     * connector's "Auto" resolves to.
      *
      * @param {{ kind: string, steps?: number, channel?: number, param?: number, strength?: number }} spec
-     * @param {{ feeRate?: bigint|number|string }} [options]
+     * @param {{ feeRate?: bigint|number|string, prepare: (spec: object) => Promise<object> }} options
      */
-    async drive(spec, { feeRate } = {}) {
+    async drive(spec, { feeRate, prepare } = {}) {
       if (!signer || !address) {
         throw new Error("no wallet is connected");
       }
-
-      const res = await fetch("/api/prepare", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...spec, address }),
-      });
-      const prepared = await res.json();
-      if (!prepared.ok) {
-        throw new Error(prepared.error);
-      }
-
-      // `fromBytes`, never `from`: see the module comment. A hex string handed to `from`
-      // silently yields an empty transaction, which then gets fee-completed, signed and sent.
-      const tx = ccc.Transaction.fromBytes(prepared.tx);
-      const flyIndex = prepared.flyInputIndex ?? 0;
-      if (tx.inputs.length <= flyIndex) {
+      if (typeof prepare !== "function") {
         throw new Error(
-          `the prepared transaction decoded to ${tx.inputs.length} inputs, so the organism is not in it`,
+          "drive needs a `prepare`: the transaction is built by the page (see public/chain.source.js), " +
+            "and this module only pays, signs and sends it",
         );
       }
 
-      await tx.completeFeeBy(signer, BigInt(feeRate ?? prepared.feeRate));
-      // After completion, never before: completing a fee can rewrite the witness list.
-      tx.setWitnessArgsAt(flyIndex, { inputType: prepared.action });
+      const built = await prepare(spec);
+      const flyIndex = built.flyInputIndex ?? 0;
+      if (built.tx.inputs.length <= flyIndex) {
+        throw new Error(
+          `the built transaction has ${built.tx.inputs.length} inputs, so the organism is not in it`,
+        );
+      }
+
+      await settle(built, { signer, feeRate: BigInt(feeRate ?? FEE_RATE) });
 
       // Signed and sent as two steps rather than one (`signer.sendTransaction`) so that what
       // comes back can be compared with what was given. A wallet that returns a *different*
       // transaction — a bare transfer, an empty one, the same one with the action dropped —
       // must be refused here, where nothing has been broadcast yet. Inputs, outputs and cell
       // deps are the parts a signature does not change; only the witnesses may differ.
-      const signed = await signer.signTransaction(tx);
+      const signed = await signer.signTransaction(built.tx);
       const same =
-        signed.inputs.length === tx.inputs.length &&
-        signed.outputs.length === tx.outputs.length &&
-        signed.cellDeps.length === tx.cellDeps.length;
+        signed.inputs.length === built.tx.inputs.length &&
+        signed.outputs.length === built.tx.outputs.length &&
+        signed.cellDeps.length === built.tx.cellDeps.length;
       if (!same) {
         throw new Error(
           `the wallet returned a different transaction (${signed.inputs.length} inputs and ` +
-            `${signed.outputs.length} outputs, where it was given ${tx.inputs.length} and ` +
-            `${tx.outputs.length}). Nothing was sent.`,
+            `${signed.outputs.length} outputs, where it was given ${built.tx.inputs.length} and ` +
+            `${built.tx.outputs.length}). Nothing was sent.`,
         );
       }
 
       const txHash = await client.sendTransaction(signed);
-      return { txHash, before: prepared.before, after: prepared.after };
+      return { txHash, before: built.before, after: built.after };
     },
   };
 }

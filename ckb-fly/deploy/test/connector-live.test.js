@@ -13,15 +13,27 @@
  *
  *     node --test test/connector-live.test.js
  *
- * Environment: `FLY_CONNECTOR_URL` (default `http://127.0.0.1:8898/`). Skips when no indexer is
- * serving the page, the same way the Rust integration suite skips without `FLY_REQUIRE_CONTRACT`.
+ * Environment: `FLY_CONNECTOR_URL`, to point at a page served somewhere else. Without it the
+ * test serves `deploy/public/` itself. Skips when there is no browser, or no `public/app.js` to
+ * serve — the same way the Rust integration suite skips without `FLY_REQUIRE_CONTRACT`.
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { existsSync } from "node:fs";
 
-const PAGE = process.env.FLY_CONNECTOR_URL ?? "http://127.0.0.1:8898/";
+import { bundleExists, startStaticPage } from "./static-page.js";
+
+/**
+ * Where the page comes from. `FLY_CONNECTOR_URL` for one served somewhere else; otherwise this
+ * test starts a static server over `public/` and points this at it.
+ *
+ * @type {string|null}
+ */
+let PAGE = process.env.FLY_CONNECTOR_URL ?? null;
+
+/** The server `PAGE` points at, when this test started it. */
+let served = null;
 
 /** Playwright lives outside this project, so its absence is a skip rather than a failure. */
 const PLAYWRIGHT = "/Users/mac/node_modules/playwright-core/index.mjs";
@@ -38,11 +50,8 @@ function chromiumPath() {
 async function unavailable() {
   if (!existsSync(PLAYWRIGHT)) return `playwright-core is not at ${PLAYWRIGHT}`;
   if (!chromiumPath()) return "no chromium found";
-  try {
-    const res = await fetch(new URL("/api/fly", PAGE), { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return `the indexer at ${PAGE} answered ${res.status}`;
-  } catch (err) {
-    return `no indexer at ${PAGE} (${err.message})`;
+  if (!process.env.FLY_CONNECTOR_URL && !bundleExists()) {
+    return "public/app.js is missing; run `make build-front-end`";
   }
   return null;
 }
@@ -53,6 +62,11 @@ describe("the wallet modal in a browser", () => {
     if (why) {
       t.skip(why);
       return;
+    }
+
+    if (!PAGE) {
+      served = await startStaticPage();
+      PAGE = served.url;
     }
 
     const { chromium } = await import(PLAYWRIGHT);
@@ -71,7 +85,7 @@ describe("the wallet modal in a browser", () => {
         if (m.type() === "error") failures.push(m.text());
       });
 
-      // `networkidle` never fires — the page holds an SSE connection open — so wait for
+      // `networkidle` never fires — the page polls the node every few seconds — so wait for
       // something the app renders instead.
       await page.goto(PAGE, { waitUntil: "domcontentloaded", timeout: 45000 });
       await page.waitForFunction(() => document.querySelector("#identity")?.children.length > 0, {
@@ -149,6 +163,7 @@ describe("the wallet modal in a browser", () => {
       assert.deepEqual(failures, [], `the page logged errors: ${failures.join("; ")}`);
     } finally {
       await browser.close();
+      await served?.close();
     }
   });
 });

@@ -30,13 +30,14 @@ There is no token. The fly's life is backed by CKB itself.
 | 9 | a keeper, so the fly lives without a human in the loop | **done** |
 | 9b | death and resurrection, exercised on a chain rather than only in tests | **done** |
 | 9c | the lock as a genesis choice: a public `flylock` fly, or a private one only its key can advance | **done on preview testnet** |
-| 9d | a visitor's own wallet drives the public fly: the server builds, the browser signs and pays | **done on preview testnet** |
+| 9d | a visitor's own wallet drives the public fly: the page builds, the wallet pays and signs | **done on preview testnet** |
+| 9e | no server behind the page: it reads the chain over JSON-RPC and computes the successor with `flywasm` | **done** |
 | 10 | whole-brain disputable verification | blocked on the connectome, which is not in the repository |
 
 `make test-all` runs 104 Rust tests and passes. `make test-deploy` runs 85 more, which pin
 the JavaScript encoder and decoder against Rust. `make build` produces three RISC-V contract
-binaries. `make build-front-end` bundles the page, which now carries CCC and two wallet
-adapters (860 KB).
+binaries. `make build-front-end` bundles the page, which now carries CCC and every wallet
+adapter CCC offers (2.8 MB).
 
 The organism has run end to end on a real node — not in a simulator: a dev chain built
 from CKB 0.209.0, where `deploy/` deployed the code cells, the connectome table and a
@@ -48,8 +49,9 @@ safety. Both short-lived test organisms were brought through death and generatio
 organism wears the deployer's own `secp256k1` lock — a private fly, moved from the page by the
 same server that used to describe it as undrivable — and a *visitor's* key, with no wallet
 extension involved, drove the public fly `321 → 353` while the deployer's balance moved by
-zero. The current public testnet indexer is the only service left running; the local dev node,
-miner and indexer were stopped.
+zero. There is no service left running at all: the page reads the chain and computes the
+successor itself, so what gets published is a directory of files. The local dev node, miner
+and indexer were stopped.
 
 ---
 
@@ -92,7 +94,7 @@ tests                 ckb-testtool integration suite (runs the real RISC-V binar
 deploy                the chain half: build, sign, send, index, and serve the front-end
   src/cli.js          deploy, drive, and recover the fly's history
   src/history.js      the event layer: a life, read back out of the chain
-  src/serve.js        the indexer and the page's host
+  src/serve.js        the indexer, kept for the keeper; the page does not call it
   public/             the front-end: the ring, the heading, the walk
 scripts/gen_fixture.py regenerates the mainnet differential fixture
 ```
@@ -531,11 +533,12 @@ chain of cells from the one it was reading a moment ago.
 Nothing on it is simulated. Between two on-chain states the page interpolates, and that
 smoothing is the only thing on the page that is not literally a number from a cell.
 
-With `INDEXER_ALLOW_DRIVE=1` the page can also drive the fly: a button posts to the
-indexer, which plans the transaction with `flyplan`, signs it and sends it, and the
-indexer notices the new cell on its next poll and pushes it to the page over SSE. The whole
-loop — browser button, planner, transaction, node, indexer, page — is exercised by clicking
-a button.
+A button on the page drives the fly: the page reads the fly's live cell, computes the
+successor with `flywasm` — the same `flycore` the validator runs, compiled to wasm — builds
+the transaction, and asks the reader's wallet to pay the fee and sign it. The next poll finds
+the new cell, and the page replaces its own prediction with the chain's answer. The whole
+loop — button, module, transaction, node, page — is exercised by clicking a button, and none
+of it touches a server.
 
 ### Keeping it alive
 
@@ -908,14 +911,14 @@ If you want to run it:
 7. `crates/flyplan/src/main.rs` — the oracle the transaction builder asks
 8. `deploy/src/cli.js` — the chain half: build, sign, send, record
 9. `deploy/src/history.js` — how a life is read back out of the chain
-10. `deploy/src/serve.js` — the indexer, and the page's host
+10. `deploy/src/serve.js` — the indexer, which the page no longer needs
 11. `deploy/public/app.js` — what is drawn, and why those three things
 12. `deploy/test/golden.test.js` — how the JavaScript mirror is kept honest
 
 If you just want to play with it:
 
 13. `docs/playing.md` — the five moves, the price of each, and the loop they form
-14. `docs/hosting.md` — what a public deployment needs, and why the server needs no key
+14. `docs/hosting.md` — what a public deployment needs, which is a static host and nothing else
 15. `crates/flywasm/src/lib.rs` — the same `flycore` compiled to wasm, and why that is not
     a second implementation
 

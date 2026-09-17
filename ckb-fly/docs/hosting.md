@@ -1,235 +1,158 @@
 # Putting the page on the internet
 
-Short version: the front-end is **not a static site**, so "put `public/` on a CDN" does not
-work. It needs a backend, that backend must be a long-lived process on a machine that can run
-a Rust binary, and **it does not need a private key**.
+Short version: the front-end **is** a static site, and "put `public/` on a CDN" is the whole
+deployment. There is no backend to run and **no private key anywhere in it** — not on the host,
+not in the bundle, not in the config.
 
-That last point is the one worth reading this for. `POST /api/prepare` computes the successor
-and hands back an *unfinished* transaction for a visitor's wallet to pay for and sign, so a
-server that only indexes and prepares holds no secret at all. That is the configuration to
-deploy.
+The page reads the chain itself (JSON-RPC), computes the successor state itself (`crates/flywasm`,
+which is the same `flycore` the validator runs, compiled to `wasm32`), and builds the transaction
+itself (`deploy/src/tx.js`). A wallet pays and signs. What is left for a host is: serve files.
+
+That was not always true, and the reason it became true is worth stating, because it is the
+reason the deployment is now this simple:
+
+| what the page does | who does it now | who used to |
+|---|---|---|
+| read the fly, its history, every organism | the page, over JSON-RPC | `GET /api/fly`, `GET /api/flies`, `GET /api/state` |
+| compute the successor state | `flywasm`, in the browser | `POST /api/prepare`, which shells out to `flyplan` |
+| follow it live | the page polls every 3 s | `GET /api/events`, an SSE stream |
+| pay, sign, broadcast | the reader's wallet | the same |
+
+Two things made it possible:
+
+- **The successor state moved into the browser.** The type script demands
+  `output.data == simulate(input.data, action)` byte for byte, so whoever builds a transaction
+  must run the dynamics — and the only implementation allowed to be authoritative is
+  `crates/flycore`. It compiles to `wasm32-unknown-unknown` as `crates/flywasm`, and
+  `make test-wasm` compares its answers to `flyplan`'s byte for byte, on inputs the contract
+  accepts and on inputs it refuses. Same crate, third target: not a second source of truth.
+- **The chain answers a browser directly.** `get_cells`, `get_live_cell` and `get_transaction`
+  are ordinary JSON-RPC calls, and `testnet.ckb.dev` answers them with
+  `access-control-allow-origin: *`. CKB has no event log — a fly's past is a chain of state cells
+  recovered by walking backwards and reading each transaction's witness — but a walk is just
+  repeated `get_transaction`, and a browser can do that.
+
+`src/serve.js` still exists and still works, but the page does not call it. See "the server, if
+you still want one" at the end.
 
 ---
 
-## Why the page needs a server
-
-| what the page does | endpoint | needs |
-|---|---|---|
-| draw the ring, the walk, the chronicle | `GET /api/fly` | the index — a walk of the fly's cell chain |
-| drive it with a visitor's wallet | `POST /api/prepare` | the **Rust planner** |
-| drive it with the server's key | `POST /api/act` | a private key on the server, and `INDEXER_ALLOW_DRIVE=1` |
-| follow it live | `GET /api/events` | a long-lived connection (SSE) |
-| list every organism | `GET /api/flies` | the index |
-| look at one past state | `GET /api/state?tx=` | the index |
-
-Two of those cannot be moved into a browser:
-
-- **The successor state.** The type script demands `output.data == simulate(input.data, action)`
-  byte for byte, so whoever builds a transaction must run the dynamics. The only implementation
-  allowed to be authoritative is `crates/flycore`, reached through the `flyplan` binary. The
-  browser mirror in `src/fly.js` covers *encoding and decoding* — enough to read a state and
-  build an action, deliberately not enough to run one.
-- **The history.** CKB has no event log. A fly's past is a chain of state cells, recovered by
-  walking backwards and reading each transaction's witness. That is the indexer.
-
----
-
-## What has to be on the machine
+## What has to be published
 
 ```sh
-# 1. the planner, which is a Rust binary and not an npm package
-cd ckb-fly && make plan
+# 1. the bundle: sources are in git, the product is not
+cd ckb-fly && make build-front-end
 
-# 2. the front-end bundle, which is a build product and is not in git
-make build-front-end
-
-# 3. the chain half
-cd deploy && npm install
-
-# 4. a deployment record for the network you are on
-ls deployment.preview.json      # named for the network, and it must exist
+# 2. the page's one static input, naming the chain and the code cells
+#    (refuses a dev chain unless CKB_RPC_URL says so — see below)
+CKB_RPC_URL=https://testnet.ckb.dev/ make publish-config
 ```
 
-Then:
+and then upload `deploy/public/`:
 
-```sh
-CKB_RPC_URL=https://testnet.ckb.dev/ PORT=8899 node src/serve.js
-```
-
-| variable | default | what it decides |
-|---|---|---|
-| `CKB_RPC_URL` | `http://127.0.0.1:8114` | **must be set** — see below |
-| `CKB_NETWORK` | inferred from the URL | which record and key are read |
-| `PORT` | 8899 | what to listen on (loopback only, always) |
-| `INDEXER_POLL_MS` | 3000 | how often to look for a new transition |
-| `INDEXER_ALLOW_DRIVE` | unset | `1` exposes `POST /api/act`, which signs with a key |
-| `FLY_STATE` | `deploy/deployment.<network>.json` | the record |
-
-**`CKB_RPC_URL` defaults to a loopback address, and a loopback address means "a dev chain".**
-The network is *inferred* from the URL, and the network selects both the record and the key
-file. Leave it unset on a server and the process reads `deployment.json` and `.key` — the dev
-chain's files — and fails, or worse, finds a stale dev record and serves a fly that is not the
-one you meant.
-
-**No key is needed**, and since `serve.js` was changed to allow it, none should be given: a
-keyless server logs that it is indexing and preparing only, reports `drive: false`, keeps
-`/api/prepare` open, and refuses `POST /api/act` with a message naming `/api/prepare`.
-
-### Or let the script check it for you
-
-`deploy/serve-public.sh` is the configuration above with the two expensive mistakes made
-impossible, because both are invisible until they have already cost something:
-
-- **A missing or loopback `CKB_RPC_URL`** is read as "a dev chain", which selects
-  `deployment.json` and `.key` — the wrong record and the wrong key on a public host.
-- **`INDEXER_ALLOW_DRIVE=1`** exposes `POST /api/act`, which signs with a key. It is refused
-  unless `FLY_ALLOW_PUBLIC_DRIVE=yes` says so in the environment.
-
-It also checks the two build products that are not in git and names the command for each:
-
-```sh
-CKB_RPC_URL=https://testnet.ckb.dev/ ./serve-public.sh
-```
-
-`test/serve-public.test.js` pins both refusals, and needs no chain — every one of them
-happens before the script does anything.
-
-Ready-made service definitions are in `deploy/hosting/`:
-
-| file | for |
+| file | what it is |
 |---|---|
-| `ckbfly-serve.service` | a Linux host, with the read-only hardening the keyless configuration allows |
-| `com.ckbfly.serve.plist` | macOS, for the self-hosting case |
-| `cloudflared.yml` | a Cloudflare Tunnel in front of either |
+| `index.html`, `style.css` | the page |
+| `app.js` | the bundle, ~2.8 MB, built by `build-front-end` |
+| `flywasm.wasm` | the dynamics module, ~36 KB, copied out of the Rust build |
+| `deployment.json` | **the chain, and the code hashes to look for** |
+
+`deployment.json` is the only one with a story. A page can discover an organism — every fly is a
+live cell wearing the `flybrain` code, so "find them all" is one query — but it cannot discover
+*which code to look for*. A code cell's hash is a fact about a binary somebody deployed, and
+nothing on the chain says "this is the CKB Fly build". So the page is told once, in a file, and
+the file is generated from the deployment record rather than written by hand: a hand-maintained
+copy drifts, and `test/public-config.test.js` fails when it does.
+
+It carries no key material and nothing about the deployer, and the test asserts the exact field
+list so that a future field cannot arrive quietly and be published.
 
 ---
 
-## The three shapes, and which one works
+## The two things a host has to get right
 
-### A long-lived process behind a tunnel or reverse proxy — **this is the one**
+**Serve `.wasm` as `application/wasm`.** `WebAssembly.instantiateStreaming` refuses a module
+served as anything else. `public/sim.source.js` falls back to `arrayBuffer()` — which works, and
+is slower — so a host that gets this wrong degrades quietly rather than breaking. Cloudflare,
+Netlify, GitHub Pages and nginx all get it right.
 
-`serve.js` is an ordinary Node process: it polls, holds an in-memory index, and fans out SSE.
-It binds `127.0.0.1`, which is not a limitation to work around — it is exactly what a tunnel
-or a same-host reverse proxy wants. Front-end and API share an origin, so **no CORS is
-involved**, which matters because the server sends no CORS headers and would have to be
-changed to serve a browser on a different origin.
+**Point it at a chain that answers with CORS.** The endpoint in `deployment.json` is read by a
+browser on someone else's machine, so it must send `access-control-allow-origin`. `testnet.ckb.dev`
+does. A node of your own needs `--rpc-allow-cors` or a proxy that adds the header.
 
-Cloudflare Tunnel, nginx, Caddy, Tailscale Funnel — all fine. The host has to stay up; see
-"two operational facts" below for why a host that restarts often is a bad fit.
-
-### Cloudflare Workers (or Pages Functions) — **no, for three separate reasons**
-
-Any one of them is enough, and none is a configuration problem:
-
-1. **No subprocesses.** `flyplan` is a Rust binary invoked with `execFileSync`. Workers run V8
-   isolates: no filesystem, no `child_process`, no arbitrary executables. There is nowhere to
-   put the planner.
-2. **The index is a long-lived in-memory object.** It is built once and updated incrementally
-   by a polling loop, and shared with SSE subscribers. A Worker is request-scoped, so this
-   becomes Durable Objects plus a rewrite of `serve.js` — which also uses `node:http`,
-   `node:fs` and `node:path`.
-3. **Cold starts would re-walk the chain.** See below; on a serverless host every cold start is
-   a cold start.
-
-The honest serverless path, if you want one: **`flycore` compiles to
-`wasm32-unknown-unknown`** — and that is now a measurement, not a hope. `crates/flywasm` is
-the same crate behind a C ABI, and `make test-wasm` loads the module in Node (which is V8,
-so it is the same engine a browser would use) and compares its answer to `flyplan`'s byte for
-byte, on inputs the contract accepts and on inputs it refuses. It is 36 KB, against the 2.9 MB
-`deploy/public/app.js` the page already ships.
-
-Because it is *the same Rust*, running it in a Worker does not create a second source of truth
-— the rule that forbids reimplementing the dynamics does not forbid a second *target*. What
-remains is the index and the SSE fan-out, which still want Durable Objects. That is a project,
-not a config change.
-
-### Cloudflare Pages for the static half only — **not on its own**
-
-`public/` would upload fine, but a page with no `/api/*` draws nothing and drives nothing: it
-is a canvas and five dead buttons. Splitting the two across origins also needs CORS, which the
-server does not send.
+Neither is a reason to run a process. Both are one line of host configuration.
 
 ---
 
-## Two operational facts that decide where you host it
+## The one operational fact that still bites
 
-**The index is in memory, and a restart re-walks the whole life.** There is no cache on disk.
-After a restart the first `refresh` walks backwards from the head, one `getTransaction` per
-transition, up to a limit of 500. That is seconds of RPC calls for a long-lived fly, and it is
-paid again on every restart. A host that restarts on deploy, on idle, or on a schedule is the
-wrong host for this — which is most of the reason serverless does not fit.
+**`get_transaction` is served from an in-memory index on the node, and is not an archive.** A node
+answers `transaction: null, status: "unknown"` — as a *normal result*, not an error — for anything
+committed before it started. `testnet.ckb.dev` is several instances behind a load balancer, so the
+same query can answer differently depending on which one you reached, and the walk stops when it
+gets nothing.
 
-**`get_transaction` is served from an in-memory index on the node, and is not an archive.** A
-node answers `transaction: null, status: "unknown"` — as a *normal result* — for anything
-committed before it started. `testnet.ckb.dev` is several instances behind a load balancer, so
-the same query can answer differently, and the walk in `history.js` stops when it gets nothing.
-The symptom is a **silently truncated** history: the page draws a fly whose life begins
-somewhere in the middle, with no error anywhere.
+The symptom is a **silently truncated** history: the page draws a fly whose life begins somewhere
+in the middle, with no error anywhere. It looks like a short life, not like a fault.
 
 Consequences:
 
-- On a public RPC, the page can be missing early transitions. It will look like a short life,
-  not like a fault.
-- For a deployment you care about, **run your own CKB node** and point `CKB_RPC_URL` at it. The
-  indexer then has an archive that outlives its own process.
+- On a public RPC the page can be missing early transitions. Nothing will say so.
+- For a deployment you care about, **run your own CKB node** and put its URL in
+  `deployment.json`. Then the history is as long as the node has been up.
 - `node src/cli.js history` and `preflight-testnet.mjs` are read-only and worth running against
-  whatever RPC you intend to use, before you rely on it.
+  whatever RPC you intend to publish, before you rely on it.
+
+Note that this is now the *reader's* browser doing the walk, on every visit: a long-lived fly is
+one `get_transaction` per transition, capped at 500. It is seconds of RPC calls against a public
+endpoint, and it is paid per reader rather than once per server.
 
 ---
 
-## Security: the thing not to do
+## Security: what there is left to leak
 
-**Do not set `INDEXER_ALLOW_DRIVE=1` on a public host.**
+Nothing, and that is the point. There is no key on the host, no key in the bundle, no key in
+`deployment.json`, and no endpoint that signs. A visitor's click is paid for from their own wallet
+and signed by it; the page never sees their key.
 
-That flag exposes `POST /api/act`, which signs with the server's key, and there is **no rate
-limiting anywhere in this server** — no per-IP limit, no cap on actions per minute, nothing.
-The two ways that is spent:
+What is still true, and is by design rather than a gap:
 
-- **`feed` drains the operator.** Each click moves 1 CKB of the server's money into the fly's
-  body, where the type script forbids ever removing it. Anyone who finds the page can do that
-  as fast as they can click, and the money is gone.
-- **`tick` is not a drain but it is a lever.** It pays the server — released capacity lands in
-  its change — but it spends the fly's *life*, so the fly can be run to death by strangers.
-
-With the flag off, the page is still fully usable: buttons are enabled for a visitor who
-connects a wallet, and their click goes to `/api/prepare`, which signs nothing and spends
-nothing of the operator's. That is the intended public configuration, and it is why a keyless
-server is not a degraded one.
-
-If you do want the server to sign on a public host, put a rate limiter and a spend cap in front
-of `/api/act` at the proxy — and fund that key with an amount you are willing to lose.
+- **A public fly can be driven by anyone.** Its lock is `flylock`, which accepts every
+  transaction. That is what "public" means here, and it is why the old
+  `INDEXER_ALLOW_DRIVE` warning no longer applies: there is no operator's money to drain, because
+  there is no operator in the loop.
+- **Watching is open.** Anyone can watch any fly, and always could.
+- **A private fly is still private.** Its lock is an ordinary `secp256k1_blake160` chosen at
+  genesis, and the lock is fixed for the organism's life — the type script pins
+  `output.lock == input.lock`. Such a fly is watchable by everyone and advanceable by whoever
+  holds that key.
 
 ---
 
-## A worked example: Cloudflare Tunnel
+## A worked example: Cloudflare Pages
 
 ```sh
-# on the host, once
-brew install cloudflared        # or the .deb / .rpm
-cloudflared tunnel login
-cloudflared tunnel create ckbfly
+cd ckb-fly && make build-front-end
+CKB_RPC_URL=https://testnet.ckb.dev/ make publish-config
 
-# run the server, loopback only, no key
-cd ckb-fly/deploy
-CKB_RPC_URL=https://testnet.ckb.dev/ PORT=8899 node src/serve.js
-
-# and point the tunnel at it
-cloudflared tunnel --url http://127.0.0.1:8899
+# then either `wrangler pages deploy deploy/public`, or connect the repo and set:
+#   build command:   cd ckb-fly && make build-front-end
+#   output directory: ckb-fly/deploy/public
 ```
 
-`cloudflared` connects *out* to Cloudflare, so the host needs no inbound ports, no public IP and
-no TLS certificate. The SSE stream survives the proxy because `serve.js` writes a comment frame
-every 15 seconds, which keeps an idle connection from being reaped by an intermediary — that
-keep-alive is not decoration.
+Two notes:
 
-Two Cloudflare-specific notes:
+- `make publish-config` needs `CKB_RPC_URL` in the build environment, because a dev chain's
+  address is the default and a published config that names `127.0.0.1` is a page that reads
+  nothing. It refuses rather than writing one. In CI the record (`deployment.preview.json`) also
+  has to be available, which for a private deployment means a secret — it names out points, not
+  keys, but it is chain state you may not want public.
+- Put **Cloudflare Access** in front of it if the fly is not meant to be public yet. One policy in
+  the dashboard, and the page needs to know nothing.
 
-- Put **Cloudflare Access** in front of it if the fly is not meant to be public yet. It is one
-  policy in the dashboard and it does not require the server to know anything.
-- The server sends `cache-control: no-store` on **everything**, including the 2.8 MB
-  `app.js` bundle, so every visit re-downloads it. That is deliberate for a page whose whole
-  point is that its numbers are current, but it is worth knowing before you wonder why a CDN is
-  not helping.
+Unlike the old server, a static deployment *can* be cached: everything in `public/` is immutable
+for a given build except `deployment.json`, which changes only when you redeploy. Set a long
+`max-age` on `app.js` and `flywasm.wasm`, and `no-store` on `deployment.json`.
 
 ---
 
@@ -237,11 +160,21 @@ Two Cloudflare-specific notes:
 
 Named rather than left to be discovered:
 
-- **No rate limiting.** Nothing in `serve.js` counts requests.
-- **No CORS.** Same-origin only, by design; splitting the page from the API means adding it.
-- **No caching.** `no-store` on static assets as well as on API responses.
-- **One process.** The index lives in one process's memory, so running two servers means two
-  indexes, two poll loops and two sets of SSE subscribers. There is no shared store.
-- **No persistence.** Restart and the history is re-walked from the chain, which is correct but
-  not instant, and which depends on the RPC having the transactions.
+- **No server-side rate limiting**, because there is no server. A public fly can be ticked as
+  fast as someone can click, and it can be run to death. That is a property of a public organism
+  on a public chain, not of the hosting.
+- **No archive.** See "the one operational fact" above. This is the one that will surprise you.
 - **No authentication on reads.** Watching any fly is open to anyone, by design.
+
+---
+
+## The server, if you still want one
+
+`deploy/src/serve.js` and `deploy/serve-public.sh` are still there, still tested, and still run
+the indexer-and-page configuration the previous version of this document described. The page does
+not call any of their endpoints any more; they are kept because the indexer's other jobs — the
+`keeper`, and `node src/cli.js status` against a long-lived index — still have uses.
+
+If you run it, the one warning that has not changed: **do not set `INDEXER_ALLOW_DRIVE=1` on a
+public host.** That exposes `POST /api/act`, which signs with the server's key, and nothing in
+that server rate-limits anything.

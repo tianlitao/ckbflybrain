@@ -72,16 +72,23 @@ import {
   circuitTable,
 } from "./artifacts.js";
 import * as plan from "./plan.js";
+import * as tx from "./tx.js";
 import { findHead, identity, liveCells as chainLiveCells, readChain, summarise } from "./history.js";
-import { describeBranches, lockKind, signableLock } from "./watch.js";
+import { describeBranches, lockKind } from "./watch.js";
 
 // ---------------------------------------------------------------- configuration
 
 /** The dev chain's pre-funded key, from `resource/specs/dev.toml`. Not a secret. */
 const DEVNET_KEY = "0xd00c06bfd800d27397002dca6fb0993d5ba6399b4238b2f29ee9deb97593d2bc";
 
-/** CKB's floor: 1,000 shannons per kilobyte of transaction. Cycles are not charged. */
-const FEE_RATE = 1_000n;
+/**
+ * CKB's floor: 1,000 shannons per kilobyte of transaction. Cycles are not charged.
+ *
+ * Defined in `tx.js` rather than here, because the page prices its own transactions with the
+ * same number and two definitions of a fee rate is how the same action ends up costing two
+ * different amounts depending on who clicked.
+ */
+const FEE_RATE = tx.FEE_RATE;
 
 /**
  * The chronicle's capacity, which never changes.
@@ -91,7 +98,7 @@ const FEE_RATE = 1_000n;
  * that says so is cheaper than a rule that has to reason about what happens when a record
  * accumulates money. 1,000 CKB against the 235 the cell occupies.
  */
-const WORLD_CAPACITY = 1_000n * SHANNONS_PER_CKB;
+const WORLD_CAPACITY = tx.WORLD_CAPACITY;
 
 /**
  * How the code cells are referenced, and why it is not `"data"`.
@@ -122,13 +129,38 @@ const WORLD_CAPACITY = 1_000n * SHANNONS_PER_CKB;
  */
 const CODE_HASH_TYPE = "data1";
 
+/**
+ * Which network an RPC endpoint belongs to, as far as the record's name is concerned.
+ *
+ * Exported rather than inlined because the page's published config names an *endpoint* and not a
+ * network, and the test that checks that config against its record has to ask the same question
+ * the deployer asks. Two spellings of this rule would mean a preview config being checked against
+ * the dev chain's record — a disagreement with nothing to do with either file.
+ *
+ * @param {string} rpc
+ * @returns {"devnet"|"preview"}
+ */
+export function networkForRpc(rpc) {
+  return /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(rpc) ? "devnet" : "preview";
+}
+
+/**
+ * Where the record for a network lives, which is what makes the two records two files.
+ *
+ * @param {string} network
+ * @returns {string}
+ */
+export function recordPathFor(network) {
+  return join(
+    PROJECT_ROOT,
+    "deploy",
+    network === "devnet" ? "deployment.json" : `deployment.${network}.json`,
+  );
+}
+
 const NETWORK =
   process.env.CKB_NETWORK ??
-  (/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(
-    process.env.CKB_RPC_URL ?? "http://127.0.0.1:8114",
-  )
-    ? "devnet"
-    : "preview");
+  networkForRpc(process.env.CKB_RPC_URL ?? "http://127.0.0.1:8114");
 
 /**
  * The record's path defaults to a file named for the network, and that is not decoration.
@@ -150,13 +182,7 @@ const CONFIG = {
   economics: process.env.FLY_ECON ?? "testnet",
   energy: BigInt(process.env.FLY_ENERGY ?? "1000000"),
   network: NETWORK,
-  statePath:
-    process.env.FLY_STATE ??
-    join(
-      PROJECT_ROOT,
-      "deploy",
-      NETWORK === "devnet" ? "deployment.json" : `deployment.${NETWORK}.json`,
-    ),
+  statePath: process.env.FLY_STATE ?? recordPathFor(NETWORK),
   // Named for the network for the same reason, and one more: a key at the plain `.key` wins
   // on *every* network, so a testnet key placed there would quietly become the key that
   // signs mainnet transactions. It also has to be a file rather than a constant, because a
@@ -1329,31 +1355,13 @@ async function cmdStatus() {
 /**
  * Build the transaction for an action — unsigned, and with no fee paid.
  *
- * Split out of {@link applyAction} for the page. A visitor's wallet must be able to drive a
- * public fly without the server holding a key for it, and the honest way to do that is not to
- * move the signing into the browser (the successor state comes from the Rust simulation, and a
- * second implementation of the dynamics in JavaScript would be a second source of truth for the
- * one thing this port is about). It is to keep *one* implementation of "what the successor is",
- * on the server, and let the browser do the only part that needs a private key: paying the fee
- * and signing. So this builds everything up to and including the action witness and stops.
+ * The shape lives in `tx.js`, because the page builds the same transaction and there is no
+ * reason for two descriptions of it. What is left here is the part that is *this* process's:
+ * reading the record, finding the live cells on the chain, and naming the oracle.
  *
- * What the payer must do, and why (see `POST /api/prepare`, which documents the same contract
- * to the browser):
- *
- * 1. `completeFeeBy(signer, FEE_RATE)` — the visitor's own coins pay, and the change comes back
- *    to them. The server's key is not in this transaction and never learns one.
- * 2. `setWitnessArgsAt(0, { inputType })` again, because completing a fee can rewrite the
- *    witness list.
- * 3. Check that the fly is still input 0 — the contract reads the action from witness 0 of the
- *    type script's input group, and that group must have exactly one member.
- *
- * `signerLock` is required rather than optional. It is the lock that is going to sign — this
- * server's key for the CLI and the keeper, the visitor's wallet for the page — and checking it
- * here rather than at each call site means a builder cannot be reached without one.
- *
- * The output cell's capacity is not computed here — it comes back from the planner as
- * `outCapacity`, which is `input.capacity - capacity_release(in.energy, out.energy)`. The
- * type script compares it for equality, so a value derived any other way would be refused.
+ * `plan` is the oracle. `flyplan` is a native binary wrapping `flycore`; the page uses
+ * `flywasm`, the same crate compiled for wasm32, and `crates/flywasm/verify.mjs` fails if the
+ * two ever disagree on a byte. So the oracle differs by where it runs, not by what it answers.
  *
  * @param {object} actionSpec `{kind, ...}` as `plan.action` expects
  * @param {{deployment?: object|null, signerLock: object, client?: object|null}} options
@@ -1366,93 +1374,30 @@ async function buildAction(actionSpec, { deployment = null, signerLock, client =
   const record = deployment ?? readDeployment();
   client = client ?? (await makeClient());
 
-  // Refuse before building anything, if the key that will sign cannot satisfy the lock the fly
-  // wears. `completeFeeBy` would fail on its own, but with a message about a signature rather
-  // than about ownership, and the useful fact here is that the lock was chosen at genesis and
-  // cannot be changed — so this is not a problem to work around, it is a different key.
-  if (!signerLock) {
-    throw new Error(
-      "buildAction needs the lock that will sign the transaction, so it can refuse a fly that " +
-        "lock cannot move",
-    );
-  }
-  const refusal = signableLock(record.fly.lockScript, {
-    myLock: signerLock,
-    alwaysLockCodeHash: record.codeCells.flylock.codeHash,
+  const flyCell = await liveCell(client, record.fly.typeScript);
+  const worldCell = record.world ? await liveCell(client, record.world.typeScript) : null;
+
+  return tx.buildAction(actionSpec, {
+    deployment: record,
+    signerLock,
+    oracle: planOracle,
+    flyCell,
+    worldCell,
   });
-  if (refusal) {
-    throw new Error(refusal);
-  }
-
-  const action = plan.action({ ...actionSpec, params: record.params });
-
-  const cell = await liveCell(client, record.fly.typeScript);
-  const prev = { txHash: cell.outPoint.txHash, index: cell.outPoint.index };
-
-  const before = decodeState(ccc.bytesFrom(cell.outputData));
-  const after = plan.apply({
-    params: record.params,
-    economics: record.economics,
-    state: ccc.hexFrom(cell.outputData),
-    action: action.action,
-    inCapacity: cell.cellOutput.capacity,
-  });
-
-  const flyLock = ccc.Script.from(record.fly.lockScript);
-  const flyType = ccc.Script.from(record.fly.typeScript);
-
-  const tx = ccc.Transaction.default();
-  tx.addCellDeps(
-    dep(record.codeCells.flybrain.outPoint),
-    dep(record.codeCells.flylock.outPoint),
-    dep(record.codeCells.flyworld.outPoint),
-    dep(record.codeCells.circuit.outPoint),
-  );
-  // The fly goes in and out first, so its witness is witness 0 — which is where the type
-  // script looks for the action.
-  tx.addInput({ previousOutput: prev, since: 0n });
-  const [out, hex] = makeOutput({
-    lock: flyLock,
-    type: flyType,
-    data: after.state,
-    capacity: BigInt(after.outCapacity),
-  });
-  tx.addOutput(out, hex);
-
-  // The chronicle, if this fly has one, is updated in the *same* transaction as the
-  // transition it records. That is the whole design: the world cell is not told what the
-  // fly did, it is required to look, and the only moment the fly is there to look at is the
-  // moment it moves.
-  let chronicle = null;
-  let chronicleCapacity = null;
-  if (record.world) {
-    const worldCell = await liveCell(client, record.world.typeScript);
-    chronicleCapacity = worldCell.cellOutput.capacity;
-    chronicle = plan.worldSight({
-      world: ccc.hexFrom(worldCell.outputData),
-      flyState: after.state,
-      // The fly's capacities, not the chronicle's: the chronicle's own capacity never
-      // changes, and its type script refuses a transaction that tries to change it.
-      inCapacity: cell.cellOutput.capacity,
-      outCapacity: after.outCapacity,
-    });
-    tx.addInput({ previousOutput: worldCell.outPoint, since: 0n });
-    const [worldOut, worldHex] = makeOutput({
-      lock: flyLock,
-      type: ccc.Script.from(record.world.typeScript),
-      data: chronicle.data,
-      capacity: chronicleCapacity,
-    });
-    tx.addOutput(worldOut, worldHex);
-  }
-
-  // The action lives in `WitnessArgs.inputType` of the state cell's input. Set here so that
-  // whoever completes the fee is estimating the size of a transaction that already contains it;
-  // they must set it again afterwards, because completion can touch the witness list.
-  tx.setWitnessArgsAt(0, { inputType: action.action });
-
-  return { record, client, action, cell, prev, before, after, tx, chronicle };
 }
+
+/**
+ * `flycore`, as reached from this process.
+ *
+ * Three calls, which are the three things `tx.js` cannot answer for itself: what bytes an
+ * action is, what the successor state is, and what the chronicle records about it.
+ */
+const planOracle = {
+  action: (spec) => plan.action(spec),
+  apply: (args) => plan.apply(args),
+  worldSight: (args) => plan.worldSight(args),
+};
+
 
 /**
  * Apply an action: build it, sign it with this server's key, send it, report what changed.
@@ -1469,23 +1414,16 @@ async function applyAction(
   const signer = makeSigner(client);
   const myLock = (await signer.getAddressObjSecp256k1()).script;
 
-  const { record, action, cell, prev, before, after, tx, chronicle } = await buildAction(
-    actionSpec,
-    { deployment, signerLock: myLock, client },
-  );
+  const record = deployment ?? readDeployment();
+  const built = await buildAction(actionSpec, { deployment: record, signerLock: myLock, client });
+  const { action, before, after, chronicle } = built;
 
-  await tx.completeFeeBy(signer, FEE_RATE);
+  // The three steps a payer owes, in one place. `settle` is what the page's wallet also calls,
+  // so "complete the fee, put the action back, check the fly did not move" is written once —
+  // and step two is the one that fails silently if it is forgotten.
+  await tx.settle(built, { signer, feeRate: FEE_RATE });
 
-  // The contract reads the action from witness[0] of the type script's input group, and
-  // that group must have exactly one member. If completion ever moved the fly off input 0
-  // the transaction would be refused on chain with `MissingWitness` or `WrongInputCount`,
-  // so it is worth failing here, where the reason is visible.
-  if (!tx.inputs[0].previousOutput.eq(prev)) {
-    throw new Error("the fly is no longer input 0 after completing the fee; refusing to send");
-  }
-  tx.setWitnessArgsAt(0, { inputType: action.action });
-
-  const txHash = await sendAndWait(client, signer, tx);
+  const txHash = await sendAndWait(client, signer, built.tx);
 
   // The recorded positions are a hint for a human reading the file, not the source of
   // truth — everything resolves them from the chain. A keeper turns recording off, because a
@@ -1514,7 +1452,7 @@ async function applyAction(
     chronicle,
     spec: actionSpec,
     actionBytes: action.action,
-    capacityBefore: String(cell.cellOutput.capacity),
+    capacityBefore: String(built.flyCell.cellOutput.capacity),
     before,
     after,
     burned: String(burned),
@@ -1530,7 +1468,7 @@ async function applyAction(
     console.log(`  head          (${before.headX}, ${before.headY}) -> (${after.headX}, ${after.headY})`);
     console.log(`  state hash    ${after.stateHash}`);
     console.log(
-      `  capacity      ${cell.cellOutput.capacity} -> ${after.outCapacity} shannons (released ${after.release})`,
+      `  capacity      ${built.flyCell.cellOutput.capacity} -> ${after.outCapacity} shannons (released ${after.release})`,
     );
     console.log(`  new state     ${txHash}:0`);
     if (chronicle) {

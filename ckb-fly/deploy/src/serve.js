@@ -698,7 +698,7 @@ async function handlePrepare(req, res) {
       tx: ccc.hexFrom(built.tx.toBytes()),
       action: built.action.action,
       feeRate: String(FEE_RATE),
-      instance: built.record.fly.instance,
+      instance: target.fly.instance,
       watching: index.id.typeHash,
       before: built.before,
       after: built.after,

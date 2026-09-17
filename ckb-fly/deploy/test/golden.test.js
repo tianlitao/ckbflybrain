@@ -32,18 +32,29 @@ import {
   WORLD_LEN,
   action,
   circuitLayout,
+  decodeArgs,
   decodeState,
+  economicsJson,
   encodeArgs,
   encodeEconomics,
   encodeParams,
   genesisState,
   keccak256,
   occupiedCapacity,
+  paramsJson,
   paramsNamed,
   worldDecode,
 } from "../src/fly.js";
 import { circuitHash, circuitTable } from "../src/artifacts.js";
-import { circuit, decode, decodeAction, economics, golden, worldOpen } from "../src/plan.js";
+import {
+  circuit,
+  decode,
+  decodeAction,
+  economics,
+  golden,
+  params as planParams,
+  worldOpen,
+} from "../src/plan.js";
 
 const g = golden();
 
@@ -87,6 +98,69 @@ describe("economics", () => {
   it("encodes as Rust does", () => {
     assert.equal(hex(encodeEconomics(ECON_TESTNET)), g.economicsTestnet);
     assert.equal(hex(encodeEconomics(ECON_FREE)), g.economicsFree);
+  });
+});
+
+describe("the JSON a page reads agrees with the planner's", () => {
+  // These shapes are what the Identity panel prints and what `oracleFor` hands to the dynamics
+  // module, and the page has no `flyplan` to ask — so this is the only place a divergence between
+  // the two can be caught. It would not crash: it would report one genome and simulate another.
+  //
+  // The whole object rather than the encoded bytes, because the interesting field is the one the
+  // encoding hides. `economics` prints its three u64 values as decimal strings, and a `Number`
+  // there is exact today and is not at values a step counter reaches.
+  for (const set of ["v1", "v2"]) {
+    it(`paramsJson("${set}") is what flyplan prints`, () => {
+      assert.deepEqual(paramsJson(set), planParams(set));
+    });
+  }
+
+  for (const set of ["testnet", "free"]) {
+    it(`economicsJson("${set}") is what flyplan prints`, () => {
+      assert.deepEqual(economicsJson(set), economics({ set }));
+    });
+  }
+
+  it("names a set it does not have, rather than falling back to a default", () => {
+    // A page pointed at a deployment built with a set this build does not know has to hear about
+    // it. Answering "v1" is the failure mode being guarded: the numbers would look plausible and
+    // every successor state the page computed would be refused by the type script.
+    assert.throws(() => paramsJson("v3"), /unknown parameter set/);
+    assert.throws(() => economicsJson("mainnet"), /unknown economics/);
+  });
+});
+
+describe("type script args read back", () => {
+  const written = encodeArgs({
+    instance: "0x" + "ab".repeat(8),
+    params: PARAMS_V1,
+    circuitHash: circuitHash(),
+    economics: ECON_TESTNET,
+  });
+
+  it("finds the four fields where encodeArgs put them", () => {
+    const got = decodeArgs(written);
+    assert.equal(got.version, 2);
+    assert.equal(got.instance, "0x" + "ab".repeat(8));
+    // The one a page checks against its own connectome before it will draw a ring. A page that
+    // got this wrong would draw the animal it was built with rather than the animal on the chain,
+    // and the two look identical.
+    assert.equal(got.circuitHash, circuitHash());
+    assert.equal(got.paramsBytes, hex(encodeParams(PARAMS_V1)));
+    assert.equal(got.economicsBytes, hex(encodeEconomics(ECON_TESTNET)));
+  });
+
+  it("refuses args that are not this version's length", () => {
+    assert.throws(() => decodeArgs(written.slice(0, written.length - 1)), /bytes; this build knows/);
+  });
+
+  it("refuses a version it does not know", () => {
+    // Version 1 has no instance field, so reading a v1 args as v2 takes eight bytes of parameters
+    // for the organism's identity — and the page spends the rest of its visit convinced it is
+    // looking at a different fly than the one whose cells it is holding.
+    const v1 = Uint8Array.from(written);
+    v1[0] = 1;
+    assert.throws(() => decodeArgs(v1), /version 1; this build knows/);
   });
 });
 

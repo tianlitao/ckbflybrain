@@ -121,6 +121,9 @@ export const ECON_FREE = {
   bodyCapacity: 0n,
 };
 
+/** The economics sets by the name a deployment record uses, next to the sets themselves. */
+export const ECON_SETS = { testnet: ECON_TESTNET, free: ECON_FREE };
+
 // ---------------------------------------------------------------- hashing
 
 /** blake2b-256, as CKB uses for code and data hashes. */
@@ -201,6 +204,39 @@ function bytes(value, size, what) {
     throw new Error(`${what} must be ${size} bytes, got ${b.length}`);
   }
   return b;
+}
+
+/**
+ * The genome a type script's args carry: instance, parameters, connectome hash, prices.
+ *
+ * The page needs this for one reason. It draws a ring, and the ring is a picture of a
+ * *particular* connectome — the one this organism's dynamics run on. The table comes from
+ * `flywasm` (`flycircuit::TABLE`, the bytes the validator itself uses), and this is the other
+ * end of that comparison: the chain's own statement of which connectome this fly was built
+ * from. If they disagree the page must draw nothing rather than a plausible picture of a
+ * different animal.
+ *
+ * Strict about the version and the length, because the two were different things: version 1
+ * had no instance field, so a v1 args string decoded as v2 would report eight bytes of
+ * parameters as the organism's identity.
+ */
+export function decodeArgs(args) {
+  const b = args instanceof Uint8Array ? args : ccc.bytesFrom(args);
+  if (b.length !== ARGS_LEN) {
+    throw new Error(
+      `the type script's args are ${b.length} bytes; this build knows version 2, which is ${ARGS_LEN}`,
+    );
+  }
+  if (b[0] !== 2) {
+    throw new Error(`the type script's args are version ${b[0]}; this build knows version 2`);
+  }
+  return {
+    version: b[0],
+    instance: ccc.hexFrom(b.subarray(1, 1 + INSTANCE_LEN)),
+    paramsBytes: ccc.hexFrom(b.subarray(1 + INSTANCE_LEN, 1 + INSTANCE_LEN + 32)),
+    circuitHash: ccc.hexFrom(b.subarray(1 + INSTANCE_LEN + 32, 1 + INSTANCE_LEN + 64)),
+    economicsBytes: ccc.hexFrom(b.subarray(1 + INSTANCE_LEN + 64)),
+  };
 }
 
 /**
@@ -317,6 +353,58 @@ export function paramsNamed(set) {
     );
   }
   return found;
+}
+
+/**
+ * The economics by the name a deployment record uses.
+ *
+ * The same bargain as {@link paramsNamed}: a record stores `"testnet"`, and everything that
+ * needs the three numbers has to resolve it the same way.
+ */
+export function economicsNamed(set) {
+  if (set && typeof set === "object") {
+    return set;
+  }
+  const found = ECON_SETS[set];
+  if (!found) {
+    throw new Error(
+      `unknown economics ${JSON.stringify(set)}; this build knows ${Object.keys(ECON_SETS).join(", ")}`,
+    );
+  }
+  return found;
+}
+
+/**
+ * The parameter set as `flyplan params` prints it.
+ *
+ * The page builds its own snapshot now, and a snapshot's `params` field used to come from
+ * `flyplan params` as JSON. Mirroring the shape rather than inventing a better one is the same
+ * rule the state decoders follow: the two answers have to be the same object, or a reader
+ * looking at one of them is looking at something nobody else sees. `bytes` is included for
+ * that reason even though no renderer reads it.
+ */
+export function paramsJson(set = "v1") {
+  const p = paramsNamed(set);
+  return {
+    set: typeof set === "string" ? set : "v1",
+    ...p,
+    bytes: ccc.hexFrom(encodeParams(p)),
+  };
+}
+
+/**
+ * The economics as `flyplan economics` prints it — u64 fields as **strings**, because that is
+ * what the planner does with them.
+ */
+export function economicsJson(set = "testnet") {
+  const e = economicsNamed(set);
+  return {
+    set: typeof set === "string" ? set : "testnet",
+    backingPerStep: String(e.backingPerStep),
+    stimCostSteps: String(e.stimCostSteps),
+    bodyCapacity: String(e.bodyCapacity),
+    bytes: ccc.hexFrom(encodeEconomics(e)),
+  };
 }
 
 /**

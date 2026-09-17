@@ -1,0 +1,61 @@
+{
+  "network": "https://testnet.ckb.dev/",
+  "params": "v1",
+  "economics": "testnet",
+  "codeCells": {
+    "flybrain": {
+      "codeHash": "0xff084a22b36c277697fedcbf0608bc9fe1081490284e283a776906933511223e",
+      "hashType": "data1",
+      "bytes": 64904,
+      "sha256": "0xd0a9ad2c9217c44b7c16a6890bc774ef2ddae04b2ad5322248ccab1f5974d9fc",
+      "outPoint": {
+        "txHash": "0x323509d1afda40a9d5d293488ee01554754b4850504e6c26fcdfd05c177449ad",
+        "index": 0
+      }
+    },
+    "flylock": {
+      "codeHash": "0x21211c3239a581f5ce6cb0e8d7b0f9adc77d22a98f63b102f8b92a93bb8c0f96",
+      "hashType": "data1",
+      "bytes": 20736,
+      "sha256": "0x5924eb1cbb6f257d6c6e3ccb03baebc73b77fac1a5b087b9c68614d7e83fc49f",
+      "outPoint": {
+        "txHash": "0x323509d1afda40a9d5d293488ee01554754b4850504e6c26fcdfd05c177449ad",
+        "index": 1
+      }
+    },
+    "flyworld": {
+      "codeHash": "0x1c7478b15a9324d4478696929f866173bd218af5e2cb656d5203706acca11cae",
+      "hashType": "data1",
+      "bytes": 50376,
+      "sha256": "0xe80ba09652798bf2dd35e3a25dd79ebe0bec9764047aa972dabc6e042104eea5",
+      "outPoint": {
+        "txHash": "0x323509d1afda40a9d5d293488ee01554754b4850504e6c26fcdfd05c177449ad",
+        "index": 2
+      }
+    },
+    "circuit": {
+      "codeHash": "0x291b9c167eca0c1001bdb11433eaea3b7383c3606ed3bfce63fb99e2fec552f2",
+      "hashType": "data1",
+      "bytes": 15065,
+      "sha256": "0xa1659e1a250cd022cbc4c58fb599f1d47e347b5c5c3e6e454c655f032fb69ae8",
+      "outPoint": {
+        "txHash": "0x323509d1afda40a9d5d293488ee01554754b4850504e6c26fcdfd05c177449ad",
+        "index": 3
+      }
+    }
+  },
+  "fly": {
+    "instance": "0xf60b8eb12f37b168",
+    "typeHash": "0x6419b09932761d52b0b85a301a2ebc81ff0cffc2c3865a3250b9943964668351",
+    "typeScript": {
+      "codeHash": "0xff084a22b36c277697fedcbf0608bc9fe1081490284e283a776906933511223e",
+      "hashType": "data1",
+      "args": "0x02f60b8eb12f37b1685f00e8030cfe60f0be00720005006c000700d7fe040023009d00400064004000ffbe0e7f28e1f0dd2cfaa01d1d221c502bf41c1fd519ebfe8d9b8203e7cedfc210270000000000008000000000000000005cb2ec22000000"
+    },
+    "lockScript": {
+      "codeHash": "0x21211c3239a581f5ce6cb0e8d7b0f9adc77d22a98f63b102f8b92a93bb8c0f96",
+      "hashType": "data1",
+      "args": "0x"
+    }
+  }
+}

@@ -129,8 +129,8 @@ const EN = {
   "roster.spikes": "{n} sp",
   "roster.sightings": "{n} sightings",
   "roster.noChronicle": "no chronicle",
-  "roster.key": "key",
-  "roster.keyTitle": "this server holds the key for this organism",
+  "roster.key": "yours",
+  "roster.keyTitle": "your wallet can advance this organism",
 
   "stimulus.none": "none",
   "stimulus.cue": "cue",
@@ -169,12 +169,13 @@ const EN = {
   "wallet.connected": "connected {address}…",
   "wallet.noteConnected":
     "<strong>Clicks in the Drive panel are signed by this wallet and paid for from its balance.</strong> " +
-    "The server builds the transaction — the successor state is the Rust simulation's — but it " +
-    "signs nothing and needs no key of its own.",
+    "The transaction is built here, in this tab: the successor state is computed by " +
+    "<code>flywasm</code>, which is the validator's own simulation compiled for the browser. There " +
+    "is no server behind this page, and no key in it but yours.",
   "wallet.noteOffered":
     "<strong>Open the wallet list from the button at the top right.</strong> That is CCC's own " +
     "connector, so it offers every wallet CCC supports — one that is not installed will say so " +
-    "when you pick it. Once connected it pays for and signs a state transition; the server never " +
+    "when you pick it. Once connected it pays for and signs a state transition; this page never " +
     "sees the key.",
 
   "drive.heading": "Drive",
@@ -191,38 +192,27 @@ const EN = {
   "drive.subFeed": "adds {n} steps of life · +{ckb} CKB",
   "drive.subCue": "holds a landmark · spends {n} steps",
   "drive.subShock": "an aversive pulse · spends {n} steps",
+  // Two sentences explain why these buttons work, and both carry markup because they open with a
+  // bold lead like every caption on the page. `drive.disabled` is the exception and is named for a
+  // reason: it interpolates the refusal the click will be met with, and a computed string goes in
+  // as *text*, never as markup.
   "drive.noteWallet":
-    "<strong>Enabled: your wallet signs and pays.</strong> The server builds the transaction — the " +
-    "successor state is the Rust planner's — and holds no key for it.",
-  "drive.notePublic":
-    "<strong>These sign a transaction with the key this server was started with.</strong> Only " +
-    "sensible on a chain where that key is worthless. This organism is public: flylock accepts " +
-    "every transaction, so anyone may advance it.",
-  "drive.notePrivate":
-    "<strong>These sign a transaction with the key this server was started with.</strong> This " +
-    "organism is private — its lock is this server's own secp256k1 lock — so these buttons are " +
-    "the only thing that can advance it without that key in hand.",
-  "drive.noteNoDrive":
-    "<strong>Disabled.</strong> This server was started without INDEXER_ALLOW_DRIVE, so it will " +
-    "not sign with its own key — but connecting a wallet (top right) does not need that key at " +
-    "all, and will enable these buttons if the organism is public.",
+    "<strong>Enabled: your wallet signs and pays.</strong> The transaction is built here, in this " +
+    "tab — the successor state is computed by <code>flywasm</code>, the validator's own simulation " +
+    "compiled for the browser — and your wallet only pays the fee and signs.",
+  "drive.noteConnect":
+    "<strong>Disabled: nothing on this page can sign.</strong> There is no server behind it and no " +
+    "key of its own — connect a wallet (top right) and these buttons light up if it is the right " +
+    "key for this organism.",
   "drive.disabled": "Disabled: {reason}",
   "drive.asking": "asking your wallet to sign {kind}…",
   "drive.sent":
-    "sent {tx} — signed and paid by your wallet; the indexer picks it up once the node commits it",
-  "drive.submitting":
-    "submitting {kind} — waiting for the node to commit (this can take a while on testnet)…",
-  "drive.duplicate": "already on its way — {reason}",
-  "drive.raced": "raced: {reason}",
-  "drive.accepted": "accepted {tx}",
-  "drive.refused": "refused: {reason}",
+    "sent {tx} — signed and paid by your wallet; the next poll shows what the chain made of it",
 
   "status.connecting": "connecting…",
-  "status.indexed": "{n} transitions indexed · updated {time}",
+  "status.read": "{n} transitions read from the chain · updated {time}",
   "status.nodeError": "the node reported: {error}",
-  "status.streamDropped": "the event stream dropped; reconnecting…",
   "status.watching": "watching {instance} ({hash}…)",
-  "status.indexerError": "the indexer answered {status}",
   "status.cannotLoad": "cannot load {tx}",
 };
 
@@ -319,8 +309,8 @@ const ZH = {
   "roster.spikes": "{n} 脉冲",
   "roster.sightings": "{n} 次目击",
   "roster.noChronicle": "无编年史",
-  "roster.key": "钥匙",
-  "roster.keyTitle": "本服务器持有这只生物的钥匙",
+  "roster.key": "可驱动",
+  "roster.keyTitle": "你的钱包可以推进这只生物",
 
   "stimulus.none": "无",
   "stimulus.cue": "线索",
@@ -358,12 +348,13 @@ const ZH = {
   "wallet.disconnect": "断开",
   "wallet.connected": "已连接 {address}…",
   "wallet.noteConnected":
-    "<strong>在「驱动」面板里点击，由这个钱包签名、并从它的余额付费。</strong>交易由服务器组装——" +
-    "后继状态来自 Rust 模拟——但服务器不签名，也不需要任何自己的钥匙。",
+    "<strong>在「驱动」面板里点击，由这个钱包签名、并从它的余额付费。</strong>交易就在这个标签页" +
+    "里组装：后继状态由 <code>flywasm</code> 算出，那是验证器自己的模拟编译到浏览器的版本。" +
+    "这个页面背后没有服务器，里面也没有除你之外的钥匙。",
   "wallet.noteOffered":
     "<strong>用右上角的按钮打开钱包列表。</strong>那是 CCC 自己的连接器，所以列出 CCC 支持的全部" +
     "钱包——还没装的那个，选中时会告诉你。连上之后它就能为一次状态转换付费并签名；" +
-    "服务器永远看不到私钥。",
+    "这个页面永远看不到私钥。",
 
   "drive.heading": "驱动",
   "drive.tick": "推进 {n} 步",
@@ -376,32 +367,20 @@ const ZH = {
   "drive.subCue": "保持一个路标 · 消耗 {n} 步",
   "drive.subShock": "厌恶刺激 · 消耗 {n} 步",
   "drive.noteWallet":
-    "<strong>可用：由你的钱包签名并付费。</strong>交易由服务器组装——后继状态来自 Rust planner——" +
-    "它不持有这把钥匙。",
-  "drive.notePublic":
-    "<strong>这些按钮用本服务器启动时的那把钥匙签名。</strong>只在这把钥匙不值钱的链上才合理。" +
-    "这只生物是公开的：flylock 接受任何交易，所以谁都可以推进它。",
-  "drive.notePrivate":
-    "<strong>这些按钮用本服务器启动时的那把钥匙签名。</strong>这只生物是私有的——它的锁就是" +
-    "本服务器自己的 secp256k1 锁——所以手上没有那把钥匙的话，只有这些按钮能推进它。",
-  "drive.noteNoDrive":
-    "<strong>已禁用。</strong>本服务器启动时没有开 INDEXER_ALLOW_DRIVE，所以它不会用自己的钥匙" +
-    "签名——但连接一个钱包（右上角）完全不需要那把钥匙，只要这只生物是公开的，这些按钮就会亮起来。",
+    "<strong>可用：由你的钱包签名并付费。</strong>交易就在这个标签页里组装——后继状态由 " +
+    "<code>flywasm</code> 算出，那是验证器自己的模拟编译到浏览器的版本——" +
+    "你的钱包只负责付手续费并签名。",
+  "drive.noteConnect":
+    "<strong>已禁用：这个页面上没有任何东西能签名。</strong>它背后没有服务器，也没有自己的" +
+    "钥匙——连接一个钱包（右上角），如果它是这只生物的正确钥匙，这些按钮就会亮起来。",
   "drive.disabled": "已禁用：{reason}",
   "drive.asking": "正在请你的钱包为 {kind} 签名…",
-  "drive.sent": "已发送 {tx} —— 由你的钱包签名并付费；节点确认后索引器会把它收录进来",
-  "drive.submitting": "正在提交 {kind} —— 等待节点确认（测试网上可能要等一会儿）…",
-  "drive.duplicate": "已经在路上了 —— {reason}",
-  "drive.raced": "被抢先了：{reason}",
-  "drive.accepted": "已接受 {tx}",
-  "drive.refused": "被拒绝：{reason}",
+  "drive.sent": "已发送 {tx} —— 由你的钱包签名并付费；下一次轮询会显示链上确认后的结果",
 
   "status.connecting": "正在连接…",
-  "status.indexed": "已索引 {n} 次状态转换 · 更新于 {time}",
+  "status.read": "已从链上读出 {n} 次状态转换 · 更新于 {time}",
   "status.nodeError": "节点报告：{error}",
-  "status.streamDropped": "事件流断开了，正在重连…",
   "status.watching": "正在观看 {instance}（{hash}…）",
-  "status.indexerError": "索引器返回了 {status}",
   "status.cannotLoad": "无法加载 {tx}",
 };
 

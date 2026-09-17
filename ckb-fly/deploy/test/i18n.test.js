@@ -97,16 +97,15 @@ describe("the two languages", () => {
     const declared = new Set([
       ...[...html.matchAll(/data-i18n-html="([^"]+)"/g)].map((m) => m[1]),
       // Rendered by a renderer rather than by the DOM filler, because the choice depends on state:
-      // `wallet.noteConnected` / `wallet.noteOffered` in `renderWallet`, and the four `drive.note*`
+      // `wallet.noteConnected` / `wallet.noteOffered` in `renderWallet`, and the two `drive.note*`
       // through `renderDrive`'s `lead()` helper. They have to be listed because a key that appears
       // only in JavaScript cannot be found by scanning the markup — and if one is added and left
       // off this list, the last assertion below fails rather than the key going quietly unchecked.
+      // A key *deleted* from the dictionaries would be caught here too, as "does not exist".
       "wallet.noteConnected",
       "wallet.noteOffered",
       "drive.noteWallet",
-      "drive.notePublic",
-      "drive.notePrivate",
-      "drive.noteNoDrive",
+      "drive.noteConnect",
     ]);
 
     const codeSpans = (text) => [...text.matchAll(/<code>(.*?)<\/code>/g)].map((m) => m[1]);
@@ -161,7 +160,7 @@ describe("the two languages", () => {
     assert.deepEqual(undeclared, [], "these carry markup but nothing renders them as HTML");
 
     // The one key that must never carry any, named so the reason survives: it interpolates a
-    // refusal reason that came from the server, and a server-supplied string goes in as text.
+    // refusal reason produced by `driveAuthorization`, and a computed string goes in as text.
     assert.ok(!/<[a-z/]/.test(EN["drive.disabled"]), "drive.disabled interpolates a server string");
   });
 

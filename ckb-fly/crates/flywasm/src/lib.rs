@@ -71,7 +71,15 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 const SCRATCH_LEN: usize = 8192;
 const IN_STATE: usize = 0;
 const IN_ACTION: usize = 2048;
+/// The chronicle being carried forward, for [`fly_world_sight`]. Placed in the gap between
+/// the action and the answer rather than after them, so that the three regions the caller
+/// writes are ordered the way they are described.
+const IN_WORLD: usize = 3072;
 const OUT: usize = 4096;
+/// The successor chronicle. A region of its own rather than an in-place rewrite of
+/// `IN_WORLD`: a function whose output aliases its input cannot be retried after a refusal,
+/// and the caller has no way to tell a half-written answer from a full one.
+const OUT_WORLD: usize = 5376;
 
 /// One static buffer for both directions, so the caller never has to guess where the
 /// module's data segment ends. Growing the memory to find room is not safe here: the Rust
@@ -113,6 +121,42 @@ pub extern "C" fn fly_in_action() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn fly_out_off() -> u32 {
     OUT as u32
+}
+
+/// Where the chronicle being carried forward goes, on the same convention.
+#[unsafe(no_mangle)]
+pub extern "C" fn fly_in_world() -> u32 {
+    IN_WORLD as u32
+}
+
+/// Where the successor chronicle starts, on the same convention.
+#[unsafe(no_mangle)]
+pub extern "C" fn fly_out_world_off() -> u32 {
+    OUT_WORLD as u32
+}
+
+// ------------------------------------------------------------------ the connectome
+
+/// The connectome table the dynamics run on, as a pointer into this module's data segment.
+///
+/// The page draws a ring, and to draw a ring it needs to know which neuron sits in which
+/// wedge. That is the first `3n` bytes of this table. Shipping it from here rather than
+/// copying `crates/flycircuit/data/circuit.bin` into `public/` at build time means the page
+/// has one artifact instead of two, and — more to the point — it cannot end up drawing a
+/// connectome the chain is not running: the type script's args carry this table's keccak256,
+/// so the page can check the bytes it was handed against the bytes the fly was built from.
+///
+/// The pointer is stable. The table is a data segment, so its address is fixed when the
+/// module is instantiated, and growing linear memory extends the heap rather than moving
+/// what is already there.
+#[unsafe(no_mangle)]
+pub extern "C" fn fly_circuit_table() -> *const u8 {
+    flycircuit::TABLE.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn fly_circuit_len() -> u32 {
+    flycircuit::TABLE.len() as u32
 }
 
 // ------------------------------------------------------------------ why it refused
@@ -267,4 +311,86 @@ pub extern "C" fn fly_apply(
     out[HEAD..].copy_from_slice(&buf[..n]);
 
     (HEAD + n) as i32
+}
+
+// ------------------------------------------------------------------ the chronicle
+
+const ERR_WORLD: i32 = -7;
+
+/// Record a sighting: the successor chronicle, from the chronicle and the fly that produced it.
+///
+/// `flyworld`'s type script requires the chronicle to be the *exact* record of the fly in the
+/// same transaction, so whoever builds that transaction has to be able to compute it — and
+/// the only implementation allowed to be authoritative is the one the validator runs. That is
+/// `World::sight`, and this is it, called from the browser instead of from `flyplan`.
+///
+/// Nothing is decided here. The fly's header, its state hash and the capacities on both sides
+/// of the transition all come from the caller's bytes, and there is no field a caller can
+/// choose. `state_len` is the fly's **successor** state, which must already be sitting at
+/// `OUT + 16` — the output of the [`fly_apply`] that produced it — because a chronicle
+/// records the fly *after* the action, and reading it from anywhere else would let the two
+/// disagree.
+///
+/// Returns `WORLD_LEN`, or a negative error code. The successor is written at
+/// [`fly_out_world_off`].
+#[unsafe(no_mangle)]
+pub extern "C" fn fly_world_sight(
+    state_len_in: u32,
+    in_capacity_lo: u32,
+    in_capacity_hi: u32,
+    out_capacity_lo: u32,
+    out_capacity_hi: u32,
+) -> i32 {
+    let scratch = SCRATCH.0.get() as *mut u8;
+    let n = flycore::world::WORLD_LEN;
+
+    // SAFETY: single-threaded, one call at a time, and the caller wrote both inputs into the
+    // regions it was handed by `fly_scratch`. Nothing else aliases them.
+    let (world_bytes, state) = unsafe {
+        (
+            core::slice::from_raw_parts(scratch.add(IN_WORLD) as *const u8, n),
+            core::slice::from_raw_parts(
+                scratch.add(OUT + HEAD) as *const u8,
+                state_len_in as usize,
+            ),
+        )
+    };
+
+    let Ok(previous) = flycore::world::World::decode(world_bytes) else {
+        return ERR_WORLD;
+    };
+    // Strict, because the chronicle records what it reads: a header two byte strings could
+    // both claim to be would let a chronicle record a sighting of a fly that does not exist.
+    let Ok(header) = flycore::world::read_fly(state) else {
+        return ERR_STATE;
+    };
+
+    let next = previous.sight(
+        &header,
+        flycore::keccak::keccak256(state),
+        join_u64(in_capacity_lo, in_capacity_hi),
+        join_u64(out_capacity_lo, out_capacity_hi),
+    );
+
+    let mut buf = [0u8; flycore::world::WORLD_LEN];
+    if next.encode(&mut buf).is_err() {
+        return ERR_ENCODE;
+    }
+
+    // SAFETY: as above. `OUT_WORLD` is a distinct region of the same static buffer, sized
+    // `WORLD_LEN` by construction, and the two inputs are `WORLD_LEN` and a state.
+    let out = unsafe { core::slice::from_raw_parts_mut(scratch.add(OUT_WORLD) as *mut u8, n) };
+    out.copy_from_slice(&buf);
+
+    n as i32
+}
+
+/// A u64 from the two halves a wasm ABI has to pass it in.
+///
+/// wasm has no 64-bit parameter type in the C ABI this module speaks, and a capacity is a
+/// u64 (shannons). Splitting it explicitly is better than narrowing: a capacity that silently
+/// lost its high half would produce a chronicle that is wrong by 4.3 billion CKB, and the
+/// type script would refuse it for reasons that point nowhere near the caller.
+fn join_u64(lo: u32, hi: u32) -> u64 {
+    (u64::from(hi) << 32) | u64::from(lo)
 }

@@ -140,6 +140,23 @@ build-front-end: wasm
 	cp target/wasm32-unknown-unknown/wasm/flywasm.wasm deploy/public/flywasm.wasm
 	cd deploy && npm run build:front-end
 
+# The page's one static input: `public/deployment.json`, naming the chain to read and the code
+# cells to look for. Emitted rather than written by hand because it is a *copy* of a deployment
+# record, and a copy maintained by hand drifts — `test/public-config.test.js` fails when the two
+# disagree, which is the only thing standing between a redeployment and a page that keeps looking
+# for the old code cells.
+#
+# Its own target, and deliberately not part of `build-front-end`, because the two disagree about
+# which chain they mean. A build defaults to the dev chain, where the page is served from this
+# machine and reads this machine's node; a *published* config that names 127.0.0.1 is a page that
+# reads nothing at all, from a browser on the other side of the world. Folding the two together
+# would make every local build overwrite the published config with a dev chain's address.
+#
+# The script refuses a dev chain unless `CKB_RPC_URL` says so explicitly, so this cannot happen by
+# accident either.
+publish-config:
+	cd deploy && node emit-public-config.mjs
+
 # Read-only rehearsal of the one part of a real deployment that a dev chain never
 # exercises. `makeClient` borrows CCC's published testnet script table on every network,
 # but on a dev chain it *overwrites* the entries it cares about with out points read out
@@ -172,4 +189,4 @@ clean:
 checksum: build
 	shasum -a 256 $(BUILD_DIR)/* | tee $(BUILD_DIR)/../checksums-$(MODE).txt
 
-.PHONY: default test test-integration test-all build check clippy fmt prepare clean checksum plan test-deploy build-front-end preflight-testnet
+.PHONY: default test test-integration test-all build check clippy fmt prepare clean checksum plan test-deploy build-front-end publish-config preflight-testnet

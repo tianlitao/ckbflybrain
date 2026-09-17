@@ -11,15 +11,32 @@
  *    "thought" — the only thing this circuit is for.
  * 3. **The walk.** Where those headings have carried it, in 1/256th of a cell per unit.
  *
- * Nothing is simulated here. Every number on the page came out of a cell on the chain,
- * decoded by the same Rust crate the type script runs. Between two states the page
+ * # There is no server behind this page
+ *
+ * Nothing here calls `/api/*`. The fly's state is read from a CKB node over JSON-RPC — CORS is
+ * the node's own answer and it is `*` — and the successor state is computed by `flywasm`, which
+ * is `flycore` compiled for wasm32: the same crate the on-chain validator runs, so this page
+ * cannot disagree with the chain about what a tick produces. Driving is signed by the reader's
+ * own wallet. `public/chain.source.js` is the reading half, `public/sim.source.js` the
+ * computing half, `src/tx.js` the transaction they share with the CLI.
+ *
+ * What is left for a host is four files and the right `content-type` for one of them.
+ *
+ * Nothing is simulated here beyond that. Every number on the page came out of a cell on the
+ * chain, decoded by the same Rust crate the type script runs. Between two states the page
  * interpolates, and the interpolation is labelled as such by the fact that it is smooth:
  * the chain's states are the frames that actually happened.
  */
 
+import * as ccc from "@ckb-ccc/core";
+
 import { WebComponentConnector } from "@ckb-ccc/connector";
 import { CLOSED, closeConnector, openConnector, settledSigner, watchConnector } from "./connector.source.js";
 import { appIcon, createWallet } from "./wallet.source.js";
+import { createFeed } from "./chain.source.js";
+import { loadSim, oracleFor } from "./sim.source.js";
+import { buildAction } from "../src/tx.js";
+import { decodeState } from "../src/fly.js";
 import { toCanvas, wedgeAngle } from "./geometry.source.js";
 import {
   applyLanguage,
@@ -31,48 +48,46 @@ import {
 } from "./i18n-dom.source.js";
 
 const DURATION = 600; // ms of interpolation between two on-chain states
+const POLL_MS = 3000; // how often to look for a new transition, as the server used to
 
 // ------------------------------------------------------------------ state
 
-let snap = null; // the last snapshot from the server
+let snap = null; // the last snapshot, built by `feed` — see chain.source.js
 let placed = null; // neuron positions, computed once per circuit
-let pinned = null; // a past transition being inspected, fetched in full, or null for live
+let pinned = null; // a past transition being inspected, decoded in full, or null for live
 let anim = null; // { from, to, t0 } — the interpolation in progress
 let drawn = null; // the state currently on screen, as the source of the next animation
 let wallet = null; // the visitor's wallet, if any: see wallet.source.js
 let connector = null; // CCC's own wallet picker, created once and kept — see renderWallet
 let connectorWatch = null; // the handle that lets this page close it without being answered
 let walletPick = 0; // which of the offered signers the reader chose
+let feed = null; // the page's own index of the chain: see chain.source.js
+let sim = null; // the dynamics, in wasm: see sim.source.js
+let poll = null; // the timer that replaces the server's event stream
 
-// ------------------------------------------------------------------ fetching
+// ------------------------------------------------------------------ reading
 
 /**
- * Every snapshot request carries the wallet's address, when there is one.
+ * The page's copy of the deployment record, written by `make build-front-end`.
  *
- * That is what makes `meta.drivable` describe the key the reader's click will actually be
- * signed with. Without it the server answers about *its* key, and the page would be showing a
- * decision about a key nobody is using — the shape of the bug that once had it disabling
- * buttons for an organism the server could drive.
+ * The page can discover *which* organisms exist by asking for the `flybrain` code, but it
+ * cannot discover which code to look for — so this is the one thing that has to be handed to
+ * it. It carries no key material; see `emit-public-config.mjs`.
  */
-function snapshotUrl(type) {
-  const params = new URLSearchParams();
-  if (type) {
-    params.set("type", type);
+async function loadConfig() {
+  const res = await fetch(new URL("./deployment.json", import.meta.url));
+  if (!res.ok) {
+    throw new Error(
+      `cannot read the deployment (${res.status} ${res.statusText}). It is written by ` +
+        "`make build-front-end`, and it has to sit beside this page.",
+    );
   }
-  const address = wallet?.address();
-  if (address) {
-    params.set("address", address);
-  }
-  const query = params.toString();
-  return query ? `/api/fly?${query}` : "/api/fly";
+  return res.json();
 }
 
 async function loadSnapshot() {
-  const res = await fetch(snapshotUrl());
-  if (!res.ok) {
-    throw new Error(t("status.indexerError", { status: res.status }));
-  }
-  applySnapshot(await res.json());
+  await feed.refresh();
+  applySnapshot(feed.snapshot());
 }
 
 function applySnapshot(next) {
@@ -98,20 +113,33 @@ function applySnapshot(next) {
   renderDrive();
 }
 
+/**
+ * Polling, which is what replaced `GET /api/events`.
+ *
+ * The server could hold a connection open and push; a static page cannot, because there is
+ * nothing on the other end to hold it. What made the stream cheap was not the transport but the
+ * *incremental* walk behind it, and that survives: `chain.source.js` keeps the transaction
+ * hashes it has already seen, so a poll that finds nothing new is two queries rather than one
+ * per step of the fly's life.
+ *
+ * A hidden tab does not poll at all. A reader who left the page open overnight should not have
+ * spent the night asking a public node whether anything happened, and the refresh on return
+ * gives them the same picture a poll would have.
+ */
 function subscribe() {
-  const source = new EventSource("/api/events");
-  source.onmessage = (event) => {
-    const message = JSON.parse(event.data);
-    if (message.type === "append" || message.type === "error" || message.type === "switched") {
-      // The server is the one walking the chain, so the cheapest correct thing is to ask
-      // it for the new picture rather than to splice the payload in here and risk the two
-      // views of the history disagreeing.
+  if (poll !== null) {
+    return;
+  }
+  poll = setInterval(() => {
+    if (!document.hidden) {
       loadSnapshot().catch(reportError);
     }
-  };
-  source.onerror = () => {
-    setStatus(t("status.streamDropped"), true);
-  };
+  }, POLL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      loadSnapshot().catch(reportError);
+    }
+  });
 }
 
 // ------------------------------------------------------------------ layout
@@ -574,24 +602,31 @@ function renderRoster() {
   });
 }
 
-/** Switch the page to another organism. The server re-walks that fly's own chain. */
+/**
+ * Switch the page to another organism.
+ *
+ * The history is thrown away rather than reused, because it belongs to the organism and not to
+ * the page — keeping it would put another fly's life in the timeline under this one's name. The
+ * `feed` does that in `select`, and the next walk recovers the new one's from the chain.
+ */
 async function watch(fly) {
   if (fly.selected) {
     return;
   }
+  pinned = null;
+  anim = null;
+  drawn = null;
+  // Before the snapshot, not after: `applySnapshot` redraws the Drive panel, and a refusal
+  // from the previous fly would be sitting under the new fly's buttons for the moment in
+  // between — which is the moment a reader is most likely to read it.
+  clearAction();
+  feed.select(fly.typeHash);
   try {
-    const res = await fetch(snapshotUrl(fly.typeHash));
-    if (!res.ok) {
-      throw new Error(t("status.indexerError", { status: res.status }));
+    await loadSnapshot();
+    if (snap.meta.error) {
+      reportError(new Error(snap.meta.error));
+      return;
     }
-    pinned = null;
-    anim = null;
-    drawn = null;
-    // Before the snapshot, not after: `applySnapshot` redraws the Drive panel, and a refusal
-    // from the previous fly would be sitting under the new fly's buttons for the moment in
-    // between — which is the moment a reader is most likely to read it.
-    clearAction();
-    applySnapshot(await res.json());
     setStatus(t("status.watching", { instance: fly.instance, hash: fly.typeHash.slice(0, 12) }));
   } catch (err) {
     reportError(err);
@@ -671,7 +706,18 @@ function renderTimeline() {
   });
 }
 
-async function pin(entry) {
+/**
+ * Show a past transition, decoded in full.
+ *
+ * No network call, and that is the point rather than an optimisation. A spent cell cannot be
+ * asked for again — the chain keeps it, but nothing will tell you it was ever a fly — so the
+ * 1,213 bytes of state are only recoverable while something is holding them, and `readChain`
+ * holds them: every entry it walks past carries its own `stateHex`. That copy is the only one
+ * that exists, which is why it is kept for every transition rather than for the newest.
+ *
+ * This used to be `GET /api/state?tx=…`, which was the server decoding hex it already had.
+ */
+function pin(entry) {
   if (entry.txHash === snap.current?.txHash) {
     pinned = null;
     drawn = snap.current?.state ?? null;
@@ -679,16 +725,17 @@ async function pin(entry) {
     renderAll();
     return;
   }
-  const res = await fetch(`/api/state?tx=${entry.txHash}`);
-  if (!res.ok) {
+  let state;
+  try {
+    state = decodeState(ccc.bytesFrom(entry.stateHex), { full: true });
+  } catch (err) {
     reportError(new Error(t("status.cannotLoad", { tx: entry.txHash })));
     return;
   }
-  const full = await res.json();
   const previous = drawn;
-  pinned = full;
-  drawn = full.state;
-  anim = previous?.v ? { from: previous, to: full.state, t0: performance.now() } : null;
+  pinned = { ...entry, state };
+  drawn = state;
+  anim = previous?.v ? { from: previous, to: state, t0: performance.now() } : null;
   renderAll();
 }
 
@@ -728,9 +775,10 @@ function renderAll() {
  * what a click will do, and it lives next to the Drive buttons because that is where the reader
  * is when the question matters.
  *
- * Neither decides whether the buttons work. That is the server's answer (`meta.drivable`,
- * computed for the address sent with the request), because the rule is about the fly's lock and
- * there is one implementation of it. This decides which endpoint a click goes to.
+ * Neither decides whether the buttons work. That is `meta.drivable`, which the page computes
+ * from the same `driveAuthorization` a click would be refused by — so the button state and the
+ * refusal cannot disagree. What this decides is which key that question is asked about, and it
+ * is always the reader's own: there is no server key here to fall back on.
  */
 function renderWallet() {
   const bar = document.getElementById("wallet-bar");
@@ -740,14 +788,18 @@ function renderWallet() {
     return;
   }
 
-  // Built once the first snapshot has arrived, because the client needs the node URL the
-  // server is reading — a page signing for one chain while the server indexes another would
-  // produce transactions that cannot resolve.
+  // Built once the first snapshot has arrived, because the client needs the node URL the page
+  // is reading — a wallet signing for one chain while the page reads another would produce
+  // transactions that cannot resolve.
   if (!wallet && snap) {
-    wallet = createWallet(snap.network);
+    wallet = createWallet(feed.rpc);
     wallet.refresh();
     wallet.onChange(() => {
-      loadSnapshot().catch(reportError);
+      // Before the snapshot, so `drivable` is answered about the key that just changed rather
+      // than about the one before it.
+      syncWalletLock()
+        .then(() => loadSnapshot())
+        .catch(reportError);
       renderWallet();
       renderDrive();
     });
@@ -765,10 +817,10 @@ function renderWallet() {
   // entirely CCC's, and the wallets in it are whatever CCC ships adapters for.
   //
   // `clientOptions` is deliberately never set. The connector grows a network switcher when the
-  // application supplies one, and this page has exactly one chain — the one its server is
-  // indexing (`snap.network`). A reader who moved the connector to another chain would be asked
-  // to sign for a chain whose fly this page cannot see. Leaving it unset makes that control inert
-  // rather than hidden, which is the version that cannot get out of step with the server.
+  // application supplies one, and this page has exactly one chain — the one it reads
+  // (`feed.rpc`). A reader who moved the connector to another chain would be asked to sign for a
+  // chain whose fly this page cannot see. Leaving it unset makes that control inert rather than
+  // hidden, which is the version that cannot get out of step with the page.
   if (!connector && wallet) {
     connector = new WebComponentConnector();
     connector.client = wallet.client;
@@ -786,8 +838,9 @@ function renderWallet() {
       }
       wallet
         .adopt(info)
-        // The address changes what `meta.drivable` means, so the snapshot is re-read rather than
+        // The lock changes what `meta.drivable` means, so the snapshot is re-read rather than
         // patched: one source of truth for the button state.
+        .then(() => syncWalletLock())
         .then(() => loadSnapshot())
         .then(() => {
           setStatus(t("wallet.connected", { address: wallet.address().slice(0, 20) }), "ok");
@@ -875,20 +928,20 @@ function renderWallet() {
   //
   // `innerHTML`, because both sentences open with a bold lead like every other caption on the
   // page — and neither interpolates anything, which is the condition for this being safe. The
-  // drive panel's `drive.disabled` is the counter-example: it takes a server-supplied reason and
-  // goes in as text.
+  // drive panel's `drive.disabled` is the counter-example: it interpolates the reason produced by
+  // `driveAuthorization`, and goes in as text.
   note.innerHTML = connected ? t("wallet.noteConnected") : t("wallet.noteOffered");
 }
 
 /**
- * The fee rate the reader chose in CCC's own modal, or `undefined` for the server's number.
+ * The fee rate the reader chose in CCC's own modal, or `undefined` for the page's own number.
  *
  * The connected view of the connector has a **Fee Rate** control, and it is reachable from this
  * page's own button — so a page that ignored it would offer a setting that silently does nothing,
  * which is worse than not offering it. The choice is written to the connector's client, a
  * `ClientWithFeeRate` wrapper the package does not export but which is what `client` returns at
- * runtime. `undefined` there means "Auto", and Auto is the number the server already computed
- * (`prepared.feeRate`), so the fallback needs no special case.
+ * runtime. `undefined` there means "Auto", and Auto is the rate `tx.js` already builds with, so
+ * the fallback needs no special case.
  *
  * It is the reader's call because it is the reader's coins: the fee comes out of their change
  * output, and `completeFeeBy` is the step that decides how big it is.
@@ -899,16 +952,62 @@ function connectorFeeRate() {
   return connector?.client?.feeRate;
 }
 
+/**
+ * Tell the page's index which key `drivable` is about.
+ *
+ * A snapshot built before this runs would answer about the previous key — or about nobody — and
+ * the Drive panel would be showing a decision about a wallet the reader is not using. That is
+ * the exact shape of the bug this field was introduced for on the server, where the answer was
+ * about the *server's* key while the reader was about to sign with their own.
+ */
+async function syncWalletLock() {
+  feed.setWalletLock(wallet ? await wallet.lock() : null);
+}
+
+/**
+ * Build the transaction for one action, in the page.
+ *
+ * This is the whole of what used to be `POST /api/prepare`, and it is four lines because the
+ * work is in `src/tx.js` — the same builder the CLI uses. The differences are the oracle
+ * (`oracleFor(sim, …)`, which is `flywasm`, where the CLI passes `flyplan`) and where the two
+ * cells come from: read from the chain at the moment of the click rather than from the roster,
+ * because the roster is a picture and a spent out point is not a stale picture, it is a
+ * rejected transaction.
+ *
+ * The chronicle's type script is built from the watched fly's type hash rather than taken from
+ * the deployment record. The record's `world` names *the deployer's* chronicle; this page can be
+ * watching a different organism, and a chronicle belongs to exactly one fly.
+ */
+async function prepare(spec) {
+  const flyCell = await feed.spendable();
+  const worldCell = await feed.chronicleCell();
+  const identity = snap.identity;
+
+  return buildAction(spec, {
+    deployment: {
+      params: identity.params,
+      economics: identity.economics,
+      codeCells: identity.codeCells,
+      fly: { typeScript: identity.typeScript, lockScript: identity.lockScript },
+      world: worldCell ? { typeScript: ccc.Script.from(worldCell.cellOutput.type) } : null,
+    },
+    signerLock: feed.walletLock(),
+    oracle: oracleFor(sim, identity),
+    flyCell,
+    worldCell,
+  });
+}
+
 function renderDrive() {
   const target = document.getElementById("drive");
   const note = document.getElementById("drive-note");
   const life = document.getElementById("drive-life");
-  // Who signs a click. With a wallet connected the server was asked about *that* key
-  // (`meta.as === "wallet"`, because the snapshot carries the address), and there is nothing to
-  // check locally: the answer already came from the one implementation of the rule. Without
-  // one, the server signs with its own key, which is what `INDEXER_ALLOW_DRIVE` gates.
-  const byWallet = snap.meta.as === "wallet" && !!wallet?.current();
-  const mayDrive = byWallet ? snap.meta.drivable : snap.meta.drive && snap.meta.drivable;
+  // Who signs a click. On this page there is exactly one answer — the reader's wallet — because
+  // there is no server key to fall back on. `meta.drivable` is the same `driveAuthorization`
+  // the click will be refused by, computed for that wallet's lock, so the button state and the
+  // refusal cannot disagree.
+  const byWallet = !!wallet?.current();
+  const mayDrive = byWallet && snap.meta.drivable;
   const enabled = mayDrive && !pinned;
   target.innerHTML = "";
 
@@ -976,54 +1075,20 @@ function renderDrive() {
     button.disabled = !enabled;
     button.addEventListener("click", async () => {
       button.disabled = true;
-      // Which of the five is in flight. On the server-signed path a click waits for the node to
-      // *commit* — measured at 41 seconds on preview testnet — and during that time all five
-      // buttons are grey and identical. The one that is running says so.
+      // Which of the five is in flight. There is only one path now, and it waits for the node to
+      // *accept*, not to commit — the commit is the next poll's business, not the click's. During
+      // that time all five buttons are grey and identical. The one that is running says so.
       button.setAttribute("aria-busy", "true");
       try {
-        if (byWallet) {
-          // Fast, and it does not stall on a confirmation: the wallet signs and broadcasts, and
-          // the node answers as soon as it accepts the transaction. What the fly becomes is
-          // still the server's prediction (it came from the planner), which is why the numbers
-          // are shown as predicted rather than as the chain's.
-          setAction(t("drive.asking", { kind: actionName(spec.kind) }), "busy");
-          const result = await wallet.drive(spec, { feeRate: connectorFeeRate() });
-          setAction(t("drive.sent", { tx: result.txHash }), "ok");
-          await loadSnapshot();
-          return;
-        }
-        // Said before the request, not after it. The server-signed path is not acknowledged
-        // until the node has *committed* the transaction, which on preview testnet was measured
-        // at **41 seconds** for a click that succeeded — and for that whole time the only thing
-        // on screen was a greyed-out button. A page that looks dead for forty seconds is
-        // indistinguishable from one that broke, so it says what it is waiting for.
-        setAction(t("drive.submitting", { kind: actionName(spec.kind) }), "busy");
-        const res = await fetch("/api/act", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(spec),
-        });
-        const body = await res.json();
-        // Branch order matters: a duplicate arrives with `ok: true` and no `txHash`, because
-        // the request did not fail but *we* did not send the transaction either — the node
-        // already had it. Checking `ok` first would print "accepted undefined".
-        //
-        // `duplicate` is `ok`, not `bad`: the transition the reader asked for is on its way, just
-        // not because of this click. Colouring it red would teach them to distrust a button that
-        // worked.
-        if (body.duplicate) {
-          setAction(t("drive.duplicate", { reason: body.error }), "ok");
-        } else if (body.lost) {
-          setAction(t("drive.raced", { reason: body.error }), "bad");
-        } else if (body.ok) {
-          setAction(t("drive.accepted", { tx: body.txHash }), "ok");
-        } else {
-          setAction(t("drive.refused", { reason: body.error }), "bad");
-        }
-        // Reloaded on every outcome, including the refusals. A refusal is the case where the
-        // reader's picture of the chain is *most* likely to be wrong — someone else moved it,
-        // or it moved under the click — and leaving the old step on screen is how a page ends
-        // up disagreeing with the organism it is drawing.
+        // One path. The wallet signs and broadcasts, and the node answers as soon as it
+        // accepts the transaction — so a click reports its own outcome in a second or two
+        // rather than waiting for a commit. What the fly *becomes* is the prediction the page
+        // computed, which is the same prediction the validator will recompute; the numbers
+        // therefore arrive a moment before the chain agrees with them, and the next poll
+        // replaces them with the chain's own.
+        setAction(t("drive.asking", { kind: actionName(spec.kind) }), "busy");
+        const result = await wallet.drive(spec, { feeRate: connectorFeeRate(), prepare });
+        setAction(t("drive.sent", { tx: result.txHash }), "ok");
         await loadSnapshot();
       } catch (err) {
         // The click's own failure, said where the click was. It does not go to the footer: that
@@ -1037,55 +1102,36 @@ function renderDrive() {
         // buttons ineligible for a second reason that this render never knew about. Reusing the
         // render-time answer would re-enable a button that `renderDrive` would have left
         // disabled, and the next click would act on a state the reader had navigated away from.
-        const stillByWallet = snap.meta.as === "wallet" && !!wallet?.current();
-        const stillAllowed = stillByWallet
-          ? snap.meta.drivable
-          : snap.meta.drive && snap.meta.drivable;
-        button.disabled = !stillAllowed || pinned !== null;
+        button.disabled = !(wallet?.current() && snap.meta.drivable) || pinned !== null;
       }
     });
     target.append(button);
   }
 
-  // The three sentences that explain why these buttons work carry markup, because they open with a
-  // bold lead like every other caption on the page. `drive.disabled` does not: it interpolates a
-  // reason that came from the server, and a server-supplied string goes in as *text*. The rule is
-  // per-key and not per-element, which is why it is written here rather than as a helper that
-  // takes whatever it is given.
+  // Two sentences now, not three: there is no server key on this page, so the only honest
+  // explanations for these buttons are "your wallet signs" and "connect one". Both carry markup,
+  // because they open with a bold lead like every other caption on the page. `drive.disabled` does
+  // not: it interpolates a reason that came from the rule the click will be refused by, and a
+  // computed string goes in as *text*. The rule is per-key and not per-element, which is why it is
+  // written here rather than as a helper that takes whatever it is given.
   const lead = (key) => {
     note.innerHTML = t(key);
   };
 
   if (mayDrive) {
-    lead(
-      byWallet
-        ? "drive.noteWallet"
-        : snap.meta.lock === "flylock"
-          ? "drive.notePublic"
-          : "drive.notePrivate",
-    );
-  } else if (byWallet || snap.meta.as === "wallet") {
-    // The reader is using a wallet and it is the wrong key for this organism. The sentence comes
-    // from the same call the endpoint refuses with.
+    lead("drive.noteWallet");
+  } else if (byWallet) {
+    // The reader has a wallet and it is the wrong key for this organism. The sentence comes from
+    // the same call the click would be refused by.
     note.textContent = t("drive.disabled", { reason: snap.meta.undrivableReason });
-  } else if (!snap.meta.drive) {
-    lead("drive.noteNoDrive");
   } else {
-    // One reason left, and its sentence comes from the module the server itself refuses with,
-    // so what the page says and what the endpoint answers cannot drift apart.
-    //
-    // There used to be a third branch here carrying an *ownership* message — "this server holds
-    // the key for <the other organism> … actions here would move the other fly" — and it was
-    // false in both halves. The action targets the organism on screen, and an organism wearing
-    // this server's own lock is one it demonstrably holds the key for. What it did was disable
-    // five buttons that worked, for a `genesis --lock owner` fly, and say something untrue
-    // about where a click would land. A refusal is only ever as good as the check behind it.
-    note.textContent = t("drive.disabled", { reason: snap.meta.undrivableReason });
+    // The only reason left on this page, and it is the honest one: nothing here can sign.
+    lead("drive.noteConnect");
   }
 }
 
 /**
- * The action's name, for a sentence like "submitting tick…".
+ * The action's name, for a sentence like "asking your wallet to sign tick…".
  *
  * Derived from the same keys the timeline uses, so the verb a reader clicks and the verb they
  * later find in the timeline are the same word — in both languages.
@@ -1116,7 +1162,7 @@ function paintStatus(el, text, state) {
 }
 
 /**
- * The page's own health: is it connected, is the indexer answering, is the stream alive.
+ * The page's own health: is it connected, did the node answer, how many transitions it read.
  *
  * It lives in the footer because it is about the page rather than about anything the reader did,
  * and it is deliberately *not* where a click's outcome goes.
@@ -1158,7 +1204,7 @@ document.getElementById("unpin").addEventListener("click", () => {
 
 requestAnimationFrame(frame);
 
-// The language is applied before the first fetch, so nothing has to be redrawn to be correct,
+// The language is applied before the first read, so nothing has to be redrawn to be correct,
 // and the switch is drawn from the language that was just chosen.
 initLanguage();
 applyLanguage();
@@ -1176,17 +1222,37 @@ onLanguage(() => {
   renderWallet();
 });
 
-loadSnapshot()
-  .then(() => {
-    setStatus(
-      snap.meta.error
-        ? t("status.nodeError", { error: snap.meta.error })
-        : t("status.indexed", {
-            n: snap.meta.count,
-            time: new Date(snap.meta.updatedAt).toLocaleTimeString(locale()),
-          }),
-      snap.meta.error ? "bad" : "ok",
-    );
-    subscribe();
-  })
-  .catch(reportError);
+/**
+ * Load the three things a page needs before it can show anything, then start reading.
+ *
+ * In this order, and each one is a real dependency rather than a preference:
+ *
+ * 1. **The deployment**, because it names the chain and the code to look for.
+ * 2. **The dynamics module**, because the connectome it carries is what the ring is drawn from
+ *    — and because `createFeed` checks that connectome against the one the fly's type script
+ *    says it runs before it will produce a picture at all.
+ * 3. **The feed**, which reads the chain.
+ *
+ * A failure in any of them leaves the page with nothing to draw, so it is reported in the
+ * footer and the poll never starts — a page that retried forever against a missing file would
+ * be a page that looks broken and says nothing.
+ */
+async function start() {
+  const config = await loadConfig();
+  sim = await loadSim();
+  feed = createFeed({ config, table: sim.circuitTable(), pollMs: POLL_MS });
+
+  await loadSnapshot();
+  setStatus(
+    snap.meta.error
+      ? t("status.nodeError", { error: snap.meta.error })
+      : t("status.read", {
+          n: snap.meta.count,
+          time: new Date(snap.meta.updatedAt).toLocaleTimeString(locale()),
+        }),
+    snap.meta.error ? "bad" : "ok",
+  );
+  subscribe();
+}
+
+start().catch(reportError);

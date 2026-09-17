@@ -43,6 +43,10 @@
  * @module sim
  */
 
+import * as ccc from "@ckb-ccc/core";
+
+import { action as actionCodec, paramsNamed } from "../src/fly.js";
+
 /**
  * `Params` variants, as `flywasm::params_of` numbers them.
  *
@@ -80,6 +84,7 @@ const ERR = {
   [-4]: "the fly refused the action",
   [-5]: "the successor state could not be encoded",
   [-6]: "the state or the action does not fit in the module's scratch buffer",
+  [-7]: "the chronicle cell is not decodable — it is not a chronicle, or not this version's",
 };
 
 /** The header `fly_apply` writes before the state: length, reserved, then the release. */
@@ -109,8 +114,36 @@ class Sim {
     this.scratch = exports.fly_scratch();
     this.inState = exports.fly_in_state();
     this.inAction = exports.fly_in_action();
+    this.inWorld = exports.fly_in_world();
     this.out = exports.fly_out_off();
+    this.outWorld = exports.fly_out_world_off();
     this.scratchLen = exports.fly_scratch_len();
+  }
+
+  /** A view of the scratch pad, rebuilt every call — see {@link Sim#apply}. */
+  memory() {
+    return new Uint8Array(this.exports.memory.buffer);
+  }
+
+  /**
+   * The connectome the dynamics run on, as bytes.
+   *
+   * Copied out rather than handed back as a view: this is a pointer into the module's data
+   * segment, which is stable, but a `Uint8Array` over the module's memory becomes detached if
+   * the module ever grows it — and a caller holding a detached array fails at the point of use
+   * with a `TypeError` that says nothing about why.
+   *
+   * The page draws its ring from this, and checks it against the hash in the fly's type script
+   * args before drawing anything. That check is the reason this comes from the module rather
+   * than from a file copied into `public/` at build time: a connectome that is not the one the
+   * chain is running would be a picture of a different animal.
+   */
+  circuitTable() {
+    return this.memory()
+      .slice(
+        this.exports.fly_circuit_table(),
+        this.exports.fly_circuit_table() + this.exports.fly_circuit_len(),
+      );
   }
 
   /**
@@ -143,7 +176,7 @@ class Sim {
     // which this one never does — but a cached view that has been detached reads as a
     // `TypeError` at the point of use rather than here, and this is cheaper than the comment
     // that would have to explain why the cache is safe.
-    const mem = new Uint8Array(ex.memory.buffer);
+    const mem = this.memory();
     mem.set(state, this.scratch + this.inState);
     mem.set(action, this.scratch + this.inAction);
 
@@ -170,6 +203,122 @@ class Sim {
       release,
     };
   }
+
+  /**
+   * Record a sighting: the chronicle's successor, from the chronicle and the fly.
+   *
+   * `flyworld`'s type script requires the chronicle to be the *exact* record of the fly in the
+   * same transaction, so the page has to be able to compute it — and this is the validator's
+   * own `World::sight`, reached through the same module that computed the successor state.
+   *
+   * `state` is the fly the chronicle is about, and it has to be the state the last
+   * {@link Sim#apply} produced. The ABI reads it from the answer region rather than from an
+   * argument precisely so that "which moment is being recorded" cannot be got wrong — and this
+   * method checks that the caller passed the same thing, so a caller that kept an older state
+   * around finds out here rather than by publishing a chronicle of the wrong moment.
+   *
+   * @param {object} request
+   * @param {Uint8Array} request.world the chronicle being carried forward
+   * @param {Uint8Array} request.state the fly's successor state, from `apply`
+   * @param {bigint|string} request.inCapacity the fly's capacity before the transition
+   * @param {bigint|string} request.outCapacity the fly's capacity after it
+   * @returns {Uint8Array} the successor chronicle
+   * @throws {Error} when the chronicle is not decodable, or the state is not the one on hand
+   */
+  sight({ world, state, inCapacity, outCapacity }) {
+    const ex = this.exports;
+
+    const answer = this.memory().slice(
+      this.scratch + this.out + HEAD,
+      this.scratch + this.out + HEAD + state.length,
+    );
+    if (!sameBytes(answer, state)) {
+      throw new Error(
+        "sight() was given a state that is not the one the last apply() produced. A chronicle " +
+          "records the fly in the transaction that moved it, so the only state it can record " +
+          "is the one on hand.",
+      );
+    }
+
+    this.memory().set(world, this.scratch + this.inWorld);
+
+    const halves = (value) => {
+      const b = BigInt(value);
+      return [Number(b & 0xffff_ffffn), Number(b >> 32n)];
+    };
+    const [il, ih] = halves(inCapacity);
+    const [ol, oh] = halves(outCapacity);
+
+    const written = ex.fly_world_sight(state.length, il, ih, ol, oh);
+    if (written < 0) {
+      const err = new Error(ERR[written] ?? `the module returned ${written}`);
+      err.code = written;
+      throw err;
+    }
+    return this.memory().slice(this.scratch + this.outWorld, this.scratch + this.outWorld + written);
+  }
+}
+
+function sameBytes(a, b) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * `flycore`, in the shape `src/tx.js` asks for.
+ *
+ * `tx.js` builds a transaction and needs three answers it must not compute itself: what bytes
+ * an action is, what the successor state is, and what the chronicle records about it. On the
+ * server those three come from `flyplan`; here they come from the module above. Neither of
+ * them decides anything — the successor state is compared for *equality* by the type script —
+ * so the only thing that matters is that the two agree, and `crates/flywasm/verify.mjs` fails
+ * if they ever do not.
+ *
+ * The shapes returned are `flyplan`'s, field for field, because `tx.js` reads them and there
+ * is one description of what a transaction is built from.
+ *
+ * @param {Sim} sim
+ * @param {object} deployment `params` and `economics`, by name
+ */
+export function oracleFor(sim, deployment) {
+  const params = paramsNamed(deployment.params);
+  return {
+    action: (spec) => actionCodec.encode(spec, params),
+
+    apply: ({ state, action, inCapacity }) => {
+      const { state: next, release } = sim.apply({
+        params: deployment.params,
+        economics: deployment.economics,
+        state: ccc.bytesFrom(state),
+        action: ccc.bytesFrom(action),
+      });
+      return {
+        state: ccc.hexFrom(next),
+        release: String(release),
+        // The type script compares this for equality, and it is the input capacity minus the
+        // release — not the release, and not the occupied size.
+        outCapacity: String(BigInt(inCapacity) - release),
+      };
+    },
+
+    worldSight: ({ world, flyState, inCapacity, outCapacity }) => ({
+      data: ccc.hexFrom(
+        sim.sight({
+          world: ccc.bytesFrom(world),
+          state: ccc.bytesFrom(flyState),
+          inCapacity,
+          outCapacity,
+        }),
+      ),
+    }),
+  };
 }
 
 let pending = null;
