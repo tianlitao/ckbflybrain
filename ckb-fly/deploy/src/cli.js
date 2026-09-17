@@ -62,6 +62,7 @@ import {
   SHANNONS_PER_CKB,
   decodeState,
   genesisState,
+  worldDecode,
 } from "./fly.js";
 import {
   PROJECT_ROOT,
@@ -71,7 +72,7 @@ import {
   circuitTable,
 } from "./artifacts.js";
 import * as plan from "./plan.js";
-import { findHead, identity, readChain, summarise } from "./history.js";
+import { findHead, identity, liveCells as chainLiveCells, readChain, summarise } from "./history.js";
 import { describeBranches, lockKind, signableLock } from "./watch.js";
 
 // ---------------------------------------------------------------- configuration
@@ -1161,19 +1162,11 @@ async function liveCells(client, scriptLike) {
   // one of them, so when several live cells wear the same type script it picks silently — and
   // then every tick consumes a different branch and creates another one, so the duplication
   // grows instead of surfacing.
-  const matches = [];
-  for await (const cell of client.findCells(
-    {
-      script: { codeHash: script.codeHash, hashType: script.hashType, args: script.args },
-      scriptType: "type",
-      scriptSearchMode: "prefix",
-    },
-    "asc",
-    8,
-  )) {
-    matches.push(cell);
-  }
-  return { script, matches };
+  //
+  // The enumeration itself lives in `history.js`, because a page reading the same chain has
+  // to enumerate for the same reason. This wrapper exists only to hand the script back, which
+  // every caller here already has in hand and every caller there already knows.
+  return { script, matches: await chainLiveCells(client, script) };
 }
 
 /**
@@ -1295,7 +1288,7 @@ async function cmdStatus() {
     // record of the same organism. Read-only, so describe the branches rather than refuse.
     const decoded = worldMatches.map((cell) => ({
       cell,
-      w: plan.worldDecode({ world: ccc.hexFrom(cell.outputData) }),
+      w: worldDecode(ccc.bytesFrom(cell.outputData)),
     }));
     if (decoded.length > 1) {
       console.log(
@@ -1396,7 +1389,7 @@ async function buildAction(actionSpec, { deployment = null, signerLock, client =
   const cell = await liveCell(client, record.fly.typeScript);
   const prev = { txHash: cell.outPoint.txHash, index: cell.outPoint.index };
 
-  const before = plan.decode({ params: record.params, state: ccc.hexFrom(cell.outputData) });
+  const before = decodeState(ccc.bytesFrom(cell.outputData));
   const after = plan.apply({
     params: record.params,
     economics: record.economics,

@@ -100,8 +100,12 @@ plan:
 # which is why a public deployment needs a machine rather than a bucket. `flycore` is
 # `no_std`, allocation-free and has no `f64`, so it compiles to wasm32 unchanged. Nothing is
 # reimplemented, so this is not a second source of truth; it is the same crate the validator
-# runs, compiled somewhere else. The target is declared in rust-toolchain.toml so a fresh
-# clone can build it without a manual `rustup target add`.
+# runs, compiled somewhere else.
+#
+# The target is *not* declared in rust-toolchain.toml. That file pins the code hashes of the
+# contracts, and `targets` is part of what it pins; adding one there would mean a fresh clone
+# downloads it before its first `cargo` command, and would change a file whose whole job is to
+# not change. So the check below says what to run instead.
 wasm:
 	@rustc --print target-libdir --target wasm32-unknown-unknown >/dev/null 2>&1 || { \
 	  echo "wasm32-unknown-unknown is not installed for this toolchain."; \
@@ -127,8 +131,13 @@ test-deploy: plan
 # generated public/app.js is what serve.js sends. This target deliberately does not add a
 # wallet: it makes the later UTXO Global/JoyID choice a one-line import rather than an import-map
 # rewrite, while keeping today's page dependency-free at runtime.
-build-front-end:
+#
+# The wasm module is copied rather than referenced: the page fetches it by URL, so it has to
+# sit beside `index.html`. It depends on `wasm`, so a build can never ship a page whose
+# dynamics module is older than the Rust it claims to be.
+build-front-end: wasm
 	@test -d deploy/node_modules || (echo "run \`npm install\` in deploy/ first" && exit 1)
+	cp target/wasm32-unknown-unknown/wasm/flywasm.wasm deploy/public/flywasm.wasm
 	cd deploy && npm run build:front-end
 
 # Read-only rehearsal of the one part of a real deployment that a dev chain never

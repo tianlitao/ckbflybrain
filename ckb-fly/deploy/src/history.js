@@ -202,6 +202,12 @@ export async function readChain({
       action,
       actionBytes,
       capacity: String(output.capacity),
+      // The state bytes, kept alongside the decoded form rather than inside it. A spent cell
+      // cannot be asked for again, so this hex is the only copy of a past state that exists —
+      // which is what makes pinning an old transition possible at all. It is also why the
+      // per-neuron arrays are dropped from everything but the head: 465 numbers per entry is a
+      // megabyte of JSON, and 1,213 bytes of hex is 2.4 KB that decodes back to them.
+      stateHex,
       state,
       isGenesis: flyInputIndex < 0,
     });

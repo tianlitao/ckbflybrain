@@ -48,7 +48,8 @@ import * as ccc from "@ckb-ccc/core";
 
 import { PROJECT_ROOT } from "./artifacts.js";
 import * as plan from "./plan.js";
-import { decodeState, paramsNamed, worldDecode } from "./fly.js";
+import { decodeState, paramsNamed } from "./fly.js";
+import { readChronicle, readFlies } from "./chain.js";
 import { CONFIG, FEE_RATE, applyAction, buildAction, makeClient, makeSigner, readDeployment, tryResolvePrivateKey } from "./cli.js";
 import { findHead, identity, readChain } from "./history.js";
 import { ambiguity, createGate, describeAmbiguity, driveAuthorization, rosterDue } from "./watch.js";
@@ -74,8 +75,6 @@ const index = {
   error: null,
   /** The chronicle cell, decoded, or `null` if this fly has none. */
   chronicle: null,
-  /** The chronicle's type script, so its cell can be found wherever it has moved to. */
-  worldScript: null,
   /**
    * Every organism on this chain, by type script hash.
    *
@@ -179,32 +178,14 @@ function broadcast(payload) {
  * chronicle and no other's.
  */
 async function refreshFlies(client) {
-  const { flybrain, flyworld } = index.deployment.codeCells;
   const seen = new Set();
-  const rows = [];
-
-  for await (const cell of client.findCells(
-    {
-      script: { codeHash: flybrain.codeHash, hashType: flybrain.hashType, args: "0x" },
-      scriptType: "type",
-      scriptSearchMode: "prefix",
-    },
-    "asc",
-    200,
-  )) {
-    const script = ccc.Script.from(cell.cellOutput.type);
-    const state = decodeState(ccc.bytesFrom(cell.outputData));
-    const { v, bias, inp, ...summary } = state;
-    rows.push({
-      typeHash: script.hash(),
-      script,
-      lock: ccc.Script.from(cell.cellOutput.lock),
-      // The instance nonce: eight bytes after the version byte, and nothing else.
-      instance: "0x" + script.args.slice(2 + 2, 2 + 2 + 16),
-      outPoint: { txHash: cell.outPoint.txHash, index: Number(cell.outPoint.index) },
-      state: summary,
-    });
-  }
+  // One implementation, shared with the page. The roster the server serves and the roster a
+  // page builds for itself are either the same list or one of them is a bug, and there is no
+  // third possibility worth maintaining.
+  const rows = await readFlies(client, {
+    codeCells: index.deployment.codeCells,
+    params: index.deployment.params,
+  });
 
   // Collected before anything is written, so that "two live cells wear this type script" is a
   // fact the roster can state. Building the map cell by cell would hide it: the second cell
@@ -227,7 +208,10 @@ async function refreshFlies(client) {
       continue;
     }
     seen.add(row.typeHash);
-    const chronicle = await findChronicle(client, flyworld, row.typeHash);
+    const chronicle = await readChronicle(client, {
+      codeCells: index.deployment.codeCells,
+      flyTypeHash: row.typeHash,
+    });
     const previous = index.flies.get(row.typeHash);
     index.flies.set(row.typeHash, {
       ...row,
@@ -246,27 +230,6 @@ async function refreshFlies(client) {
   }
 }
 
-/** The chronicle that watches one fly, decoded, or `null` if it has none. */
-async function findChronicle(client, flyworld, flyTypeHash) {
-  const prefix = "0x01" + flyTypeHash.slice(2);
-  for await (const cell of client.findCells(
-    {
-      script: { codeHash: flyworld.codeHash, hashType: flyworld.hashType, args: prefix },
-      scriptType: "type",
-      scriptSearchMode: "prefix",
-    },
-    "asc",
-    2,
-  )) {
-    return {
-      outPoint: { txHash: cell.outPoint.txHash, index: Number(cell.outPoint.index) },
-      capacity: String(cell.cellOutput.capacity),
-      ...worldDecode(ccc.bytesFrom(cell.outputData)),
-    };
-  }
-  return null;
-}
-
 /**
  * Watch a different organism.
  *
@@ -280,7 +243,6 @@ async function selectFly(client, typeHash) {
   if (!fly) {
     throw new Error(`no organism ${typeHash} on this chain`);
   }
-  const { flyworld } = index.deployment.codeCells;
 
   index.id = {
     typeScript: fly.script,
@@ -291,13 +253,6 @@ async function selectFly(client, typeHash) {
     economics: index.deployment.economics,
     codeCells: index.deployment.codeCells,
   };
-  // The chronicle's args are `version ‖ fly type hash`, so this fly's chronicle is a script
-  // that can be constructed rather than searched for.
-  index.worldScript = ccc.Script.from({
-    codeHash: flyworld.codeHash,
-    hashType: flyworld.hashType,
-    args: "0x01" + fly.typeHash.slice(2),
-  });
 
   index.entries = [];
   index.byTx = new Map();
@@ -307,25 +262,13 @@ async function selectFly(client, typeHash) {
 }
 
 async function refreshChronicle(client) {
-  if (!index.worldScript) {
-    index.chronicle = null;
-    return;
-  }
   // Found by type script, not by a stored out point. The chronicle moves whenever the fly
   // does, so a remembered position is stale the moment anything touches it — and "anything"
   // now includes a keeper running in another terminal.
-  const cell = await client.findSingletonCellByType(index.worldScript, true);
-  if (!cell) {
-    index.chronicle = null;
-    return;
-  }
-  index.chronicle = {
-    // `outPoint.index` is a bigint, which `JSON.stringify` refuses. The snapshot is JSON, so
-    // it becomes a number here rather than blowing up at the edge.
-    outPoint: { txHash: cell.outPoint.txHash, index: Number(cell.outPoint.index) },
-    capacity: String(cell.cellOutput.capacity),
-    ...worldDecode(ccc.bytesFrom(cell.outputData)),
-  };
+  index.chronicle = await readChronicle(client, {
+    codeCells: index.deployment.codeCells,
+    flyTypeHash: index.id.typeHash,
+  });
 }
 
 async function refresh({ force = false } = {}) {
@@ -372,7 +315,6 @@ async function startIndex() {
   const deployment = readDeployment();
   index.deployment = deployment;
   index.id = identity({ deployment });
-  index.worldScript = deployment.world ? ccc.Script.from(deployment.world.typeScript) : null;
 
   // The lock this server's key signs for. Computed once, and that is safe in a way the
   // *record's* fly is not: this is a property of the key the process was started with, which
@@ -461,6 +403,10 @@ const TYPES = {
   ".svg": "image/svg+xml",
   ".json": "application/json; charset=utf-8",
   ".ico": "image/x-icon",
+  // Not a formality. `WebAssembly.instantiateStreaming` refuses anything but this type, and
+  // the page falls back to buffering the whole module when a host gets it wrong — which
+  // works, and hides the mistake. Serving it correctly is how the fast path stays the path.
+  ".wasm": "application/wasm",
 };
 
 function json(res, status, body) {
@@ -968,7 +914,7 @@ const server = createServer(async (req, res) => {
         action: entry.action,
         blockNumber: entry.blockNumber,
         capacity: entry.capacity,
-        state: decodeState(ccc.bytesFrom(entry.state.state), { full: true }),
+        state: decodeState(ccc.bytesFrom(entry.stateHex), { full: true }),
       });
     }
 

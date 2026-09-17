@@ -9,8 +9,9 @@
 //! which is the whole reason the public page needs a server rather than a bucket.
 //!
 //! It does not have to. `flycore` is `no_std`, allocation-free and has no `f64`, so it
-//! compiles to `wasm32-unknown-unknown` unchanged. This crate is the C ABI around it: one
-//! exported function that takes a state and an action and writes the successor state.
+//! compiles to `wasm32-unknown-unknown` unchanged. This crate is the C ABI around it: a
+//! scratch pad the caller writes into, one function that takes a state and an action and
+//! writes the successor state, and one that says why it refused.
 //!
 //! **It is the same `flycore`.** Nothing is reimplemented, so this does not become a
 //! second source of truth — which is the one thing the whole port is organised to avoid.
@@ -93,6 +94,18 @@ pub extern "C" fn fly_scratch_len() -> u32 {
     SCRATCH_LEN as u32
 }
 
+/// Where the state goes, **relative to the pointer `fly_scratch` returns**.
+#[unsafe(no_mangle)]
+pub extern "C" fn fly_in_state() -> u32 {
+    IN_STATE as u32
+}
+
+/// Where the action goes, on the same convention.
+#[unsafe(no_mangle)]
+pub extern "C" fn fly_in_action() -> u32 {
+    IN_ACTION as u32
+}
+
 /// Where the answer starts, **relative to the pointer `fly_scratch` returns** — the same
 /// convention as the two input offsets. The caller reads the header at `scratch + this` and
 /// the state at `scratch + this + 16`. Asking over the ABI keeps the output layout owned by
@@ -100,6 +113,48 @@ pub extern "C" fn fly_scratch_len() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn fly_out_off() -> u32 {
     OUT as u32
+}
+
+// ------------------------------------------------------------------ why it refused
+
+/// The reason the last `fly_apply` refused, as a code from [`apply_reason`].
+///
+/// `fly_apply` reports *that* the fly refused; this reports *why*, and they are separate
+/// because they are separate jobs. One is an error the caller has to handle, the other is a
+/// sentence a reader has to be shown: "it is dead" and "that did not work" are not the same
+/// message, and a page that can only say the second one teaches its reader that nothing they
+/// do has a reason. That is the opposite of what this project is about — the fly is a real
+/// organism with real refusals, and they are all named in `flycore::ApplyError`.
+///
+/// Read it immediately after a `fly_apply` that returned `ERR_APPLY`. Any other call
+/// overwrites it, including a successful one, so it is a return value in two halves rather
+/// than a piece of state.
+struct LastReason(UnsafeCell<u32>);
+// SAFETY: as `Scratch` — wasm is single-threaded and one call is in flight at a time.
+unsafe impl Sync for LastReason {}
+
+static LAST_REASON: LastReason = LastReason(UnsafeCell::new(0));
+
+/// The `ApplyError` variant from the last refusal, or 0 if nothing was refused.
+///
+/// The numbers are written out rather than derived from the enum's order. An ABI that moves
+/// when someone reorders a match arm is an ABI that breaks silently, and this one is read by
+/// a browser that has no way to notice.
+fn apply_reason(err: flycore::ApplyError) -> u32 {
+    match err {
+        flycore::ApplyError::Dead => 1,
+        flycore::ApplyError::NotDead => 2,
+        flycore::ApplyError::BadTick => 3,
+        flycore::ApplyError::BadBornBlock => 4,
+        flycore::ApplyError::FeedWhileDead => 5,
+        flycore::ApplyError::ZeroAmount => 6,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn fly_last_reason() -> u32 {
+    // SAFETY: single-threaded, and this is a plain read of a static the module owns.
+    unsafe { *LAST_REASON.0.get() }
 }
 
 // ------------------------------------------------------------------ the one function
@@ -160,6 +215,10 @@ pub extern "C" fn fly_apply(
     if state_len_in as usize > IN_ACTION || action_len as usize > OUT - IN_ACTION {
         return ERR_TOO_LONG;
     }
+    // Cleared up front so that a caller which reads the reason after a *successful* call gets
+    // "nothing", rather than the reason from whichever call happened to fail last.
+    // SAFETY: single-threaded; see `LastReason`.
+    unsafe { *LAST_REASON.0.get() = 0 };
 
     let scratch = SCRATCH.0.get() as *mut u8;
     // SAFETY: single-threaded, one call at a time, and the caller wrote the two inputs
@@ -179,7 +238,9 @@ pub extern "C" fn fly_apply(
     let Ok(action) = Action::decode(action_bytes, &params) else {
         return ERR_ACTION;
     };
-    if sim.apply(action, &econ).is_err() {
+    if let Err(err) = sim.apply(action, &econ) {
+        // SAFETY: single-threaded; see `LastReason`.
+        unsafe { *LAST_REASON.0.get() = apply_reason(err) };
         return ERR_APPLY;
     }
 

@@ -68,6 +68,7 @@ import { pathToFileURL } from "node:url";
 import * as ccc from "@ckb-ccc/core";
 
 import { CONFIG, applyAction, liveCells, makeClient, makeSigner, readDeployment } from "./cli.js";
+import { decodeState } from "./fly.js";
 import * as plan from "./plan.js";
 import { classifySendError } from "./send.js";
 import { describeBranches } from "./watch.js";
@@ -143,7 +144,7 @@ async function readFly(client, record) {
   return {
     cell,
     capacity: BigInt(cell.cellOutput.capacity),
-    state: plan.decode({ params: record.params, state: ccc.hexFrom(cell.outputData) }),
+    state: decodeState(ccc.bytesFrom(cell.outputData)),
   };
 }
 
