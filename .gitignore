@@ -31,6 +31,11 @@ ckb-fly/build/
 # dependencies — so committing it would vendor a megabyte of minified
 # third-party code. `make build-front-end` regenerates it.
 ckb-fly/deploy/public/app.js
+# The second bundle, for the two prose pages (`about.html`, `guide.html`). Same argument,
+# smaller file: it is generated from `pages.source.js` and `i18n.source.js` by the same
+# target, and a build product that is committed is a build product that will disagree with
+# its source. `check-public` refuses to publish without it.
+ckb-fly/deploy/public/pages.js
 # And the dynamics module, copied in from the Rust build by the same target. It is a
 # compiled artifact of `crates/flywasm`; committing a binary whose source is right
 # there is how the two come to disagree.
