@@ -217,13 +217,22 @@ export function createWallet(rpc) {
      *
      * Cached, because it cannot change while a signer is connected and the answer is needed on
      * every snapshot.
+     *
+     * `getRecommendedAddressObj` and not `getAddressObj`: CCC's `Signer` has no `getAddressObj`.
+     * It has `getAddressObjs` (plural) and `getRecommendedAddressObj`, and only *some* adapters
+     * happen to define a private `getAddressObj` of their own — so the wrong name works for the
+     * wallets that define it and throws `signer.getAddressObj is not a function` for every other
+     * one, right after a reader has connected. Nothing dies, no error reaches the screen: the
+     * page is simply left with no lock, `drivable` stays false, and every Drive button stays
+     * grey. It is also the same call `adopt` uses for the address it shows, so the lock and the
+     * address a reader is looking at cannot come from two different accounts.
      */
     async lock() {
       if (!signer) {
         return null;
       }
       if (!lockCache) {
-        lockCache = (await signer.getAddressObj()).script;
+        lockCache = (await signer.getRecommendedAddressObj()).script;
       }
       return lockCache;
     },

@@ -219,6 +219,12 @@ describe("driving the fly from the browser", () => {
           // `adopt`, not `connect`: this is the entry the connector's picker uses, and the one
           // that skips `signer.connect()` because the connector already did it.
           await wallet.adopt({ name: whichCore, signer });
+          // The page's own wiring, and not optional: connecting a wallet is what tells the feed
+          // which key `drivable` is about, and the builder reads the same value to refuse a fly
+          // that key cannot move. `app.source.js` does this in `syncWalletLock`; a harness that
+          // adopts a signer and skips it hands `prepare` a feed with no lock, and `buildAction`
+          // refuses before it builds anything.
+          feed.setWalletLock(await wallet.lock());
           try {
             // The page's half. Not written here: see the module doc.
             const out = await wallet.drive(

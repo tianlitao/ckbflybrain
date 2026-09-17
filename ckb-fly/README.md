@@ -31,11 +31,13 @@ There is no token. The fly's life is backed by CKB itself.
 | 9b | death and resurrection, exercised on a chain rather than only in tests | **done** |
 | 9c | the lock as a genesis choice: a public `flylock` fly, or a private one only its key can advance | **done on preview testnet** |
 | 9d | a visitor's own wallet drives the public fly: the page builds, the wallet pays and signs | **done on preview testnet** |
-| 9e | no server behind the page: it reads the chain over JSON-RPC and computes the successor with `flywasm` | **done** |
+| 9e | no server behind the page: it reads the chain over JSON-RPC and computes the successor with `flywasm` | **done — the indexer and the six `/api` routes are deleted, not stopped** |
 | 10 | whole-brain disputable verification | blocked on the connectome, which is not in the repository |
 
-`make test-all` runs 104 Rust tests and passes. `make test-deploy` runs 85 more, which pin
-the JavaScript encoder and decoder against Rust. `make build` produces three RISC-V contract
+`make test-all` runs 104 Rust tests and passes. `make test-deploy` runs 161 more — 159 on every
+run, and two that need `FLY_DRIVE_LIVE=1` because they spend testnet CKB — and they pin the
+JavaScript encoder and decoder against Rust, the page's own builder against a live node, and the
+wallet's state against the signer API CCC actually promises. `make build` produces three RISC-V contract
 binaries. `make build-front-end` bundles the page, which now carries CCC and every wallet
 adapter CCC offers (2.8 MB).
 
@@ -49,9 +51,14 @@ safety. Both short-lived test organisms were brought through death and generatio
 organism wears the deployer's own `secp256k1` lock — a private fly, moved from the page by the
 same server that used to describe it as undrivable — and a *visitor's* key, with no wallet
 extension involved, drove the public fly `321 → 353` while the deployer's balance moved by
-zero. There is no service left running at all: the page reads the chain and computes the
-successor itself, so what gets published is a directory of files. The local dev node, miner
-and indexer were stopped.
+zero. The visitor's half of that was re-measured after the server was deleted, through the
+page's own builder instead of the deleted `/api/prepare`: two `tick 64`s, the fly now at step
+480, and the visitor's balance up **+0.01275230 CKB** — which is the 1,280,000 shannons that
+128 steps release, less 4,770 of fees. The arithmetic closes on its own, so that is the chain
+having moved rather than a node having accepted. The deployer needs no such caveat any more:
+there is no server left to hold its key, so the key cannot be on the path at all. There is no
+service running: the page reads the chain and computes the successor itself, so what gets
+published is a directory of files. The local dev node, miner and indexer were stopped.
 
 ---
 

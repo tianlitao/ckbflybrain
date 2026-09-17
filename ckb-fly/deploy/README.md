@@ -763,7 +763,7 @@ is why the row above is tested the way it is, on a one-step organism built for t
 
 ---
 
-## Seven things that will bite
+## Eight things that will bite
 
 ### `hash_type: "data"` silently pins the script to CKB-VM 0
 
@@ -962,6 +962,36 @@ The shape of the mistake generalises, and it is not "the check was wrong": **a d
 two places is two decisions.** `driveAuthorization` had no test of its own — the two functions
 it composed each had one — so nothing could notice that its two callers disagreed.
 
+### A wallet connects, and every Drive button stays grey
+
+The page learns which key `drivable` is about from the wallet, and the builder refuses a fly that
+key cannot move. Both read one value, `feed.walletLock()`, which the page sets in `syncWalletLock`
+when a wallet is adopted or disconnected. So the lock has to make a journey — signer → wallet →
+feed → builder — and two things can break it without saying anything:
+
+- **`wallet.lock()` called a method CCC does not have.** It asked the signer for
+  `getAddressObj()`. CCC's `Signer` promises `getAddressObjs()` (plural) and
+  `getRecommendedAddressObj()`; there is no `getAddressObj`. *Some* adapters happen to define a
+  private one, so the wrong name works for those wallets and throws
+  `signer.getAddressObj is not a function` for every other one — inside the connect path, where
+  nothing renders it. No exception reaches the reader: the feed is simply never told about a key,
+  `drivable` stays false, and all five buttons stay grey. Measured in a real browser with
+  `FLY_DRIVE_LIVE=1`: the click failed with `drive() failed: buildAction needs the lock that will
+  sign the transaction`, which is the builder describing a symptom two layers below the cause.
+
+  It now reads the same call `adopt` uses for the address it prints, so the lock and the address
+  on screen cannot come from two different accounts.
+- **The live test that covers the whole click adopted a signer and did not tell the feed.** It
+  called `createWallet(...).adopt(signer)` and `drive(...)`, and skipped `syncWalletLock` — the
+  page's own one line. That is the failure mode this harness is least able to survive, because it
+  is the *only* test that runs the whole path and it skips itself unless `FLY_DRIVE_LIVE=1`.
+
+`test/wallet.test.js` now pins the first: a stub signer that implements **only** the documented
+surface — and an assertion that `ccc.Signer.prototype.getAddressObj` is `undefined`, so the pin
+says why the stub may not have one either. Putting the old call back fails it in three places.
+The second is pinned by the live test, which is the only place the wiring exists; that is an
+argument for running it, not for trusting it.
+
 ---
 
 ## Tests
@@ -977,12 +1007,15 @@ disagreement would not fail loudly: it would produce a transaction the type scri
 or a state cell that decodes to something plausible and wrong. It found a real bug on its
 first run.
 
-Three suites exist because their subject fails *silently*:
+Four suites exist because their subject fails *silently*:
 
 - `test/watch.test.js` — the three ways a page can watch one organism and move another, all of
   which produce a successful transaction and a page that does not change.
 - `test/instance.test.js` — the nonce that makes two flies from one genome two organisms. Its
   absence is invisible until you count the type scripts.
+- `test/wallet.test.js` — which key the page thinks is connected, and whether it read that key
+  through a method CCC promises. Get it wrong and nothing throws anywhere a reader can see: the
+  feed is never told, and five buttons stay grey. See the eighth bite above.
 - `test/send.test.js` — what a rejected send means, and what to say about it. Pinned because the
   classification is matched on the node's message text, which is the only thing available and
   therefore the part that will rot first; because getting it wrong stopped two keepers out of
@@ -998,12 +1031,21 @@ does — importing the keeper must not start one — and that guard is what let 
 tested from `keeper.test.js` in the first place; once the page became its second caller, the honest
 place for it was its own module.
 
-**The wallet layer has no unit tests, and that is a gap rather than a decision.** `wallet.source.js`
-cannot be imported outside a browser: both adapters read `window` (UTXO Global's factory does so
-unguarded, and throws in Node), and the thing under test is a *signature ceremony* that no headless
-runner can complete. What exists instead is a real browser run per change — `window.utxoGlobal`
-faked, the real page, the real server, the real chain — plus a rehearsal of the same four steps in
-Node with a real key, which is where the `Transaction.from`/`fromBytes` mistake was caught. Both are
-described in the verification table above. The rule that the two halves share — whose key may move
-which organism — *is* unit-tested, in `watch.test.js`, because it is the part that has been got
-wrong twice.
+**The wallet layer has unit tests now; what they cannot cover is the ceremony.** `wallet.test.js`
+imports `wallet.source.js` in Node and pins its state — which lock it answers with, that the lock
+comes from the same account as the address on screen, that the cache does not survive a change of
+signer, and that a wallet whose own `disconnect()` throws is still let go of. That import was
+assumed to be impossible until the bug in the eighth bite made someone try it: the adapters read
+`window`, but they read it lazily enough that the module loads, and the module can then be handed
+a stub signer instead of a real one.
+
+What no headless runner can do is complete a *signature ceremony* — JoyID's passkey is a human
+gesture, and UTXO Global writes its state somewhere a fake cannot reach. That half is covered by a
+real browser run per change: `panel-live.test.js` for the page with the chain actually read, and
+`FLY_DRIVE_LIVE=1 node --test test/drive-live.test.js` for the whole click — the page's own
+builder, a private key standing in for the passkey, `completeFeeBy`, the sign, the broadcast, and
+an assertion that the chain shows the fly advance by exactly what was asked for. It spends real
+testnet CKB and advances a public fly, which is why it is opt-in; it is also the only test that
+would have caught either half of the eighth bite, so it is worth running after anything that
+touches the wallet. The rule that the two halves share — whose key may move which organism — *is*
+unit-tested, in `watch.test.js`, because it is the part that has been got wrong twice.
