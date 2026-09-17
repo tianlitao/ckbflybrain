@@ -32,6 +32,7 @@ There is no token. The fly's life is backed by CKB itself.
 | 9c | the lock as a genesis choice: a public `flylock` fly, or a private one only its key can advance | **done on preview testnet** |
 | 9d | a visitor's own wallet drives the public fly: the page builds, the wallet pays and signs | **done on preview testnet** |
 | 9e | no server behind the page: it reads the chain over JSON-RPC and computes the successor with `flywasm` | **done — the indexer and the six `/api` routes are deleted, not stopped** |
+| 9f | publishing: what is uploaded is a directory of files, because there is nothing else to run | **live at `ckb-fly.pages.dev` (Cloudflare Pages)** |
 | 10 | whole-brain disputable verification | blocked on the connectome, which is not in the repository |
 
 `make test-all` runs 104 Rust tests and passes. `make test-deploy` runs 161 more — 159 on every
@@ -59,6 +60,12 @@ having moved rather than a node having accepted. The deployer needs no such cave
 there is no server left to hold its key, so the key cannot be on the path at all. There is no
 service running: the page reads the chain and computes the successor itself, so what gets
 published is a directory of files. The local dev node, miner and indexer were stopped.
+
+It is published, and that claim was checked from outside rather than from here: a headless
+browser on `https://ckb-fly.pages.dev/` — a page on Cloudflare's edge, not on this machine —
+filled its panels in 18.7 s and drew five organisms at the same steps a local read of the chain
+gives, with no request to any `/api` path (there is none to make) and nothing in the console.
+See [`docs/hosting.md`](docs/hosting.md) for the deployment and the headers that were measured.
 
 ---
 

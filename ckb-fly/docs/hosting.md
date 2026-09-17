@@ -131,30 +131,49 @@ What is still true, and is by design rather than a gap:
 
 ---
 
-## A worked example: Cloudflare Pages
+## It is deployed: Cloudflare Pages, `https://ckb-fly.pages.dev/`
 
 ```sh
 cd ckb-fly && make build-front-end
 CKB_RPC_URL=https://testnet.ckb.dev/ make publish-config
-
-# then either `wrangler pages deploy deploy/public`, or connect the repo and set:
-#   build command:   cd ckb-fly && make build-front-end
-#   output directory: ckb-fly/deploy/public
+make check-public                                  # refuses a dev chain, or missing build products
+npx wrangler pages project create ckb-fly --production-branch=main
+npx wrangler pages deploy deploy/public --project-name=ckb-fly --branch=main --commit-dirty=true
 ```
+
+That is the whole deployment: 14 files, one upload, no process. (A CI deployment instead of a
+local one would run the first two lines as a build command and take `ckb-fly/deploy/public` as
+the output directory — in which case the record `deployment.preview.json` has to be available to
+the build, because `publish-config` derives the page's config from it. It names out points, not
+keys, but it is chain state you may not want public, so that is a secret in CI.)
+
+What was measured on the deployed page, rather than assumed:
+
+| claim | how it was checked | result |
+|---|---|---|
+| the wasm module is served correctly | `curl -I .../flywasm.wasm` | `content-type: application/wasm` — so `instantiateStreaming` works, and the slow `arrayBuffer()` fallback never runs |
+| a browser other than this machine's can read the chain | headless Chromium on `https://ckb-fly.pages.dev/` | the page filled its panels in 18.7 s and drew 5 organisms at steps 545 / 65 / 1,024 / 480 / 130 — the same numbers a local Node read of the chain gives, so it is the chain and not a cache |
+| there is no server behind it | the same run, counting requests to the page's own origin | `/`, `/style.css`, `/app.js`, `/deployment.json`, `/flywasm.wasm`, all 200. No `/api/*` exists to call |
+| nothing on the page is broken | the same run, `pageerror` + `console` + `requestfailed` | none |
 
 Two notes:
 
-- `make publish-config` needs `CKB_RPC_URL` in the build environment, because a dev chain's
-  address is the default and a published config that names `127.0.0.1` is a page that reads
-  nothing. It refuses rather than writing one. In CI the record (`deployment.preview.json`) also
-  has to be available, which for a private deployment means a secret — it names out points, not
-  keys, but it is chain state you may not want public.
+- **A first visit reads the whole life over RPC**: 10 transitions walked in that run, on top of a
+  2.9 MB bundle. It is seconds of a public endpoint per reader, and — see "the one operational
+  fact" above — as long as the node remembers. Serve it behind a CDN and the bundle is a
+  non-issue; the walk is not, and cannot be cached away, because it is the reader's own.
 - Put **Cloudflare Access** in front of it if the fly is not meant to be public yet. One policy in
   the dashboard, and the page needs to know nothing.
 
-Unlike the old server, a static deployment *can* be cached: everything in `public/` is immutable
-for a given build except `deployment.json`, which changes only when you redeploy. Set a long
-`max-age` on `app.js` and `flywasm.wasm`, and `no-store` on `deployment.json`.
+**On caching, measured rather than advised:** Pages already answers with
+`cache-control: public, max-age=0, must-revalidate` for every file here, and that is the right
+answer for this site, so there is no `_headers` file. The tempting advice — "everything in
+`public/` is immutable for a given build, so set a long `max-age` on `app.js` and `flywasm.wasm`"
+— is wrong *here*, because the filenames carry no content hash: `immutable` would pin the first
+copy of `app.js` a reader ever fetched into their browser for a year, and the next deployment
+would be invisible to exactly the readers who had been there before. Immutability is a property
+of the *URL*, not of the build, and these URLs do not change. `deployment.json` revalidating is
+what makes a redeployment take effect.
 
 ---
 

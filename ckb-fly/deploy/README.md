@@ -102,11 +102,12 @@ predecessor. It accepts three forms:
 | `<codeHash>:<hashType>:<args>` | any lock script, including a wallet lock; `hashType` is `data`, `data1`, `data2` or `type` |
 
 A wallet lock is therefore a genesis choice, not a setting that can be added to an existing
-fly. The current server can only sign `flylock` or a private fly wearing the same owner lock;
-for a different lock it refuses before building a transaction. The page reports the same fact,
-so a private fly that this server deployed but cannot sign for does not show misleading Drive
-buttons. A future UTXO Global or JoyID signer belongs in the browser-side signing layer, not in
-this Node keeper.
+fly. The keeper (`src/keeper.js`) holds one key: it can advance a `flylock` fly, or a private
+fly wearing its own lock, and it refuses anything else before building a transaction. The page
+holds no key at all — it can advance exactly what the reader's wallet can sign, and what the
+reader's wallet cannot sign it disables rather than offering a button that would fail. Both
+answers come from the one `driveAuthorization`; the only thing that differs is whose key it is
+asked about, and on the page that key is the reader's.
 
 `adopt` exists because `deploy` sends the four code cells and only *then* writes the record —
 it cannot know the transaction hash before the chain assigns it — so anything that fails in
@@ -129,6 +130,15 @@ take 1..=64 steps, because that is what the parameters allow; `stimulate`'s step
 simulated *after* the stimulus is armed, so `stimulate(1, 4, 4, 32)` is "steer, then run 32
 steps" in one transaction. It has to be one transaction: a state cell can only be consumed
 once per version.
+
+### Publishing it
+
+Not part of running it locally, and not a service either: `deploy/public/` is uploaded as a
+directory of files, after `make check-public` has refused the two ways a static site can be
+broken without any upload failing — a `deployment.json` naming a dev chain, and a missing
+`app.js` or `flywasm.wasm`. It is live at <https://ckb-fly.pages.dev/>; the headers that were
+measured there, the requests a first visit makes, and why this site must *not* be given a long
+`max-age` are in [`docs/hosting.md`](../docs/hosting.md).
 
 ### Watching it
 
